@@ -52,6 +52,7 @@ desktop.ini
 # =========================
 Archivos/
 data/
+docs/
 docs/*.docx
 docs/*.pdf
 
