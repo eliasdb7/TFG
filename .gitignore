@@ -52,8 +52,8 @@ desktop.ini
 # =========================
 Archivos/
 data/
-docs/*docx
-docs/*pdf
+docs/*.docx
+docs/*.pdf
 
 # =========================
 # Resultados generados (si son pesados o regenerables)
