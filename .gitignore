@@ -1,3 +1,78 @@
-/.venv
-/Archivos
-/data
+# =========================
+# Entorno virtual
+# =========================
+.venv/
+venv/
+env/
+
+# =========================
+# Python
+# =========================
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyd
+*.pyo
+
+# =========================
+# Build / packaging
+# =========================
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# =========================
+# Logs / temp
+# =========================
+*.log
+*.tmp
+*.temp
+
+# =========================
+# Jupyter
+# =========================
+.ipynb_checkpoints/
+
+# =========================
+# VS Code / IDEs
+# =========================
+.vscode/
+.idea/
+
+# =========================
+# Sistema operativo
+# =========================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# =========================
+# Datos y archivos pesados / privados
+# =========================
+Archivos/
+data/
+docs/
+
+# =========================
+# Resultados generados (si son pesados o regenerables)
+# =========================
+resultados/*.csv
+resultados/*.json
+resultados/*.xlsx
+resultados/*.pkl
+resultados/*.joblib
+
+# =========================
+# Modelos descargados o entrenados
+# =========================
+models/
+checkpoints/
+
+# =========================
+# Cachés varias
+# =========================
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.cache/
