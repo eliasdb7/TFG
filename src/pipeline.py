@@ -6,7 +6,10 @@ import requests
 
 from src.dev_logger import log_step, reset_log
 from src.extractor import extract_basic_info
-from src.scraper import fetch_html
+from src.scraper import (
+    UnsupportedGuideFormatError,
+    fetch_page,
+)
 from src.similarity import compute_subject_similarity
 from src.text_processing import clean_text
 from src.utils import truncate_text
@@ -16,6 +19,7 @@ def display_extraction_result(label: str, info: dict[str, object]) -> None:
     """Muestra por consola el resultado de la extracción de una asignatura."""
     print(f"{label}:")
     print(f"- URL procesada: {info.get('url')}")
+    print(f"- Estrategia de scraping: {info.get('estrategia_scraping')}")
     print(f"- Nombre extraído: {info.get('nombre')}")
     print(f"- Créditos extraídos: {info.get('ects')}")
     print(f"- Contenidos (primeros 500 caracteres): {truncate_text(str(info.get('contenidos') or ''), 500)}")
@@ -57,7 +61,26 @@ def process_subject(url: str, label: str) -> dict[str, object]:
         "Se realiza una petición HTTP a la URL seleccionada para obtener el contenido HTML de la guía docente.",
     )
     try:
-        html = fetch_html(url)
+        fetch_result = fetch_page(url)
+        html = fetch_result.html
+    except UnsupportedGuideFormatError as exc:
+        log_step(
+            "Formato no soportado",
+            "La URL analizada apunta a un formato de guía docente que todavía no está soportado en la versión actual del proyecto.",
+        )
+        info = {
+            "url": url,
+            "estrategia_scraping": "unsupported_format",
+            "nombre": None,
+            "ects": None,
+            "contenidos": None,
+            "warnings": [
+                str(exc),
+                "No se ha podido procesar la asignatura en esta ejecución.",
+            ],
+        }
+        display_extraction_result(label, info)
+        return info
     except requests.Timeout:
         log_step(
             "Error de descarga",
@@ -65,6 +88,7 @@ def process_subject(url: str, label: str) -> dict[str, object]:
         )
         info = {
             "url": url,
+            "estrategia_scraping": "download_timeout",
             "nombre": None,
             "ects": None,
             "contenidos": None,
@@ -82,6 +106,7 @@ def process_subject(url: str, label: str) -> dict[str, object]:
         )
         info = {
             "url": url,
+            "estrategia_scraping": "download_error",
             "nombre": None,
             "ects": None,
             "contenidos": None,
@@ -109,8 +134,13 @@ def process_subject(url: str, label: str) -> dict[str, object]:
         "Extracción de contenidos",
         "Se intenta localizar una sección de contenidos o temario a partir de encabezados y etiquetas resaltadas dentro del documento HTML.",
     )
+    log_step(
+        "Selección de estrategia",
+        "Se aplica una estrategia específica del portal si existe; en caso contrario, se utiliza el scraping HTML genérico como mecanismo base.",
+    )
 
     info = extract_basic_info(html, url=url)
+    info["estrategia_scraping"] = fetch_result.strategy_name
     contents = str(info.get("contenidos") or "")
     info["contenidos"] = clean_text(contents) if contents else ""
 
@@ -129,7 +159,7 @@ def process_subject(url: str, label: str) -> dict[str, object]:
 
 
 def run_pipeline(url_origen: str, urls_destino: list[str]) -> None:
-    """Ejecuta el flujo base de la V1.1 para una asignatura origen y varias destino.
+    """Ejecuta el flujo base de la V1.2 para una asignatura origen y varias destino.
 
     Args:
         url_origen: URL de la asignatura de origen.

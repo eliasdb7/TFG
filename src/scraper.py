@@ -6,6 +6,7 @@ import html
 import json
 import re
 from dataclasses import dataclass
+from typing import Callable
 from urllib.parse import urlparse
 
 import requests
@@ -23,14 +24,29 @@ DEFAULT_HEADERS = {
 }
 
 
+class UnsupportedGuideFormatError(ValueError):
+    """Se lanza cuando la guía encontrada no pertenece al alcance actual."""
+
+
 @dataclass(frozen=True)
 class ScraperStrategy:
     """Define una estrategia de scraping para un portal concreto."""
 
     name: str
+    description: str
     host_patterns: tuple[str, ...]
-    direct_fetcher: callable | None = None
-    html_enricher: callable | None = None
+    direct_fetcher: Callable[[str, requests.Session], str | None] | None = None
+    html_enricher: Callable[[str, requests.Session, str], str] | None = None
+
+
+@dataclass(frozen=True)
+class FetchResult:
+    """Representa el resultado de una descarga HTML."""
+
+    url: str
+    html: str
+    strategy_name: str
+    strategy_description: str
 
 
 def build_session() -> requests.Session:
@@ -57,12 +73,11 @@ def matches_host(url: str, host_patterns: tuple[str, ...]) -> bool:
 
 def wrap_html_section(section_id: str, heading: str, content_html: str) -> str:
     """Envuelve un bloque HTML enriquecido para integrarlo en la página."""
-    wrapper = (
+    return (
         f'\n<section id="{section_id}">'
         f"<h2>{html.escape(heading)}</h2>"
         f"{content_html}</section>\n"
     )
-    return wrapper
 
 
 def extract_uniovi_ajax_urls(html_text: str) -> tuple[str | None, str | None]:
@@ -276,11 +291,13 @@ def fetch_unileon_snapshot_html(url: str, session: requests.Session) -> str | No
 SCRAPER_STRATEGIES = (
     ScraperStrategy(
         name="unileon_snapshot_api",
+        description="Visor SPA con API JSON propia de la Universidad de León.",
         host_patterns=("visor-guiadocente.unileon.es",),
         direct_fetcher=fetch_unileon_snapshot_html,
     ),
     ScraperStrategy(
         name="uniovi_ajax_html",
+        description="Ficha HTML con guía docente cargada dinámicamente por AJAX en UniOvi.",
         host_patterns=("uniovi.es",),
         html_enricher=enrich_uniovi_html,
     ),
@@ -300,7 +317,7 @@ def fetch_with_direct_strategy(
     url: str,
     session: requests.Session,
     strategies: list[ScraperStrategy],
-) -> str | None:
+) -> FetchResult | None:
     """Intenta obtener el contenido con una estrategia específica de portal."""
     for strategy in strategies:
         if strategy.direct_fetcher is None:
@@ -308,7 +325,12 @@ def fetch_with_direct_strategy(
 
         html_text = strategy.direct_fetcher(url, session)
         if html_text:
-            return html_text
+            return FetchResult(
+                url=url,
+                html=html_text,
+                strategy_name=strategy.name,
+                strategy_description=strategy.description,
+            )
 
     return None
 
@@ -318,41 +340,65 @@ def enrich_with_strategies(
     html_text: str,
     session: requests.Session,
     strategies: list[ScraperStrategy],
-) -> str:
+) -> FetchResult:
     """Aplica enriquecimientos específicos sobre el HTML ya descargado."""
     enriched_html = html_text
+    applied_strategy: ScraperStrategy | None = None
     for strategy in strategies:
         if strategy.html_enricher is None:
             continue
-        enriched_html = strategy.html_enricher(enriched_html, session, url)
-    return enriched_html
+        candidate_html = strategy.html_enricher(enriched_html, session, url)
+        if candidate_html != enriched_html:
+            applied_strategy = strategy
+        enriched_html = candidate_html
+
+    if applied_strategy is not None:
+        return FetchResult(
+            url=url,
+            html=enriched_html,
+            strategy_name=applied_strategy.name,
+            strategy_description=applied_strategy.description,
+        )
+
+    return FetchResult(
+        url=url,
+        html=enriched_html,
+        strategy_name="generic_html",
+        strategy_description="Descarga HTML genérica sin adaptador específico.",
+    )
+
+
+def ensure_supported_html_response(response: requests.Response) -> None:
+    """Verifica que la respuesta descargada siga dentro del alcance actual."""
+    content_type = response.headers.get("content-type", "").lower()
+    parsed_url = urlparse(response.url)
+
+    if parsed_url.path.lower().endswith(".pdf") or "application/pdf" in content_type:
+        raise UnsupportedGuideFormatError(
+            "La guía encontrada está en formato PDF y todavía no está soportada en la versión actual."
+        )
+
+
+def fetch_page(url: str) -> FetchResult:
+    """Descarga una guía docente aplicando estrategias específicas y fallback genérico."""
+    session = build_session()
+    strategies = get_matching_strategies(url)
+
+    direct_result = fetch_with_direct_strategy(url, session, strategies)
+    if direct_result is not None:
+        return direct_result
+
+    response = session.get(url, timeout=(10, 30))
+    response.raise_for_status()
+    ensure_supported_html_response(response)
+    html_text = response.text
+
+    return enrich_with_strategies(response.url, html_text, session, strategies)
 
 
 def fetch_html(url: str) -> str:
     """Descarga y devuelve el HTML de una URL.
 
-    La función primero intenta aplicar estrategias específicas del portal
-    universitario. Si ninguna resuelve el contenido, utiliza una descarga HTML
-    genérica y posteriormente aplica, si procede, enriquecimientos del portal.
-
-    Args:
-        url: Dirección web de la guía docente.
-
-    Returns:
-        El contenido HTML de la página.
-
-    Raises:
-        requests.RequestException: Si ocurre un error en la petición HTTP.
+    Esta función se mantiene por compatibilidad con el resto del proyecto.
     """
-    session = build_session()
-    strategies = get_matching_strategies(url)
-
-    direct_html = fetch_with_direct_strategy(url, session, strategies)
-    if direct_html:
-        return direct_html
-
-    response = session.get(url, timeout=(10, 30))
-    response.raise_for_status()
-    html_text = response.text
-
-    return enrich_with_strategies(response.url, html_text, session, strategies)
+    return fetch_page(url).html
