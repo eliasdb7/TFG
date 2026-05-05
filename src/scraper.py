@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import html
 import json
 import re
+from dataclasses import dataclass
+from urllib.parse import urlparse
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -18,6 +21,16 @@ DEFAULT_HEADERS = {
     ),
     "Accept-Language": "es-ES,es;q=0.9",
 }
+
+
+@dataclass(frozen=True)
+class ScraperStrategy:
+    """Define una estrategia de scraping para un portal concreto."""
+
+    name: str
+    host_patterns: tuple[str, ...]
+    direct_fetcher: callable | None = None
+    html_enricher: callable | None = None
 
 
 def build_session() -> requests.Session:
@@ -36,28 +49,37 @@ def build_session() -> requests.Session:
     return session
 
 
-def extract_uniovi_ajax_urls(html: str) -> tuple[str | None, str | None]:
+def matches_host(url: str, host_patterns: tuple[str, ...]) -> bool:
+    """Comprueba si una URL pertenece a alguno de los dominios esperados."""
+    netloc = urlparse(url).netloc.lower()
+    return any(pattern in netloc for pattern in host_patterns)
+
+
+def wrap_html_section(section_id: str, heading: str, content_html: str) -> str:
+    """Envuelve un bloque HTML enriquecido para integrarlo en la página."""
+    wrapper = (
+        f'\n<section id="{section_id}">'
+        f"<h2>{html.escape(heading)}</h2>"
+        f"{content_html}</section>\n"
+    )
+    return wrapper
+
+
+def extract_uniovi_ajax_urls(html_text: str) -> tuple[str | None, str | None]:
     """Extrae las URLs AJAX usadas por UniOvi para cargar la guía docente."""
-    ajax_urls = re.findall(r"A\.io\.request\('([^']+)'", html)
+    ajax_urls = re.findall(r"A\.io\.request\('([^']+)'", html_text)
     if len(ajax_urls) < 2:
         return None, None
 
-    metadata_url = ajax_urls[0]
-    guide_url = ajax_urls[1]
-    return metadata_url, guide_url
+    return ajax_urls[0], ajax_urls[1]
 
 
 def fetch_uniovi_guide_html(
-    html: str,
+    html_text: str,
     session: requests.Session,
 ) -> str | None:
-    """Recupera el HTML dinámico de la guía docente en páginas de UniOvi.
-
-    Algunas fichas de asignatura de la Universidad de Oviedo cargan la guía
-    docente real mediante peticiones AJAX. Esta función intenta resolver ese
-    contenido adicional y devolverlo como HTML.
-    """
-    metadata_url, guide_url = extract_uniovi_ajax_urls(html)
+    """Recupera el HTML dinámico de la guía docente en páginas de UniOvi."""
+    metadata_url, guide_url = extract_uniovi_ajax_urls(html_text)
     if not metadata_url or not guide_url:
         return None
 
@@ -90,28 +112,228 @@ def fetch_uniovi_guide_html(
     return guide_response.text.strip() or None
 
 
-def enrich_uniovi_html(html: str, session: requests.Session) -> str:
+def enrich_uniovi_html(html_text: str, session: requests.Session, _: str) -> str:
     """Añade al HTML principal la guía docente dinámica de UniOvi cuando exista."""
     try:
-        guide_html = fetch_uniovi_guide_html(html, session)
+        guide_html = fetch_uniovi_guide_html(html_text, session)
     except (requests.RequestException, json.JSONDecodeError, ValueError):
-        return html
+        return html_text
 
     if not guide_html:
-        return html
+        return html_text
 
-    wrapper = (
-        '\n<section id="codex-uniovi-guia-docente">'
-        '<h2>Guía docente cargada dinámicamente</h2>'
-        f"{guide_html}</section>\n"
+    wrapper = wrap_html_section(
+        "codex-uniovi-guia-docente",
+        "Guía docente cargada dinámicamente",
+        guide_html,
     )
-    if "</body>" in html:
-        return html.replace("</body>", f"{wrapper}</body>", 1)
-    return f"{html}\n{wrapper}"
+    if "</body>" in html_text:
+        return html_text.replace("</body>", f"{wrapper}</body>", 1)
+    return f"{html_text}\n{wrapper}"
+
+
+def parse_unileon_snapshot_url(url: str) -> tuple[str, str] | None:
+    """Extrae curso académico y código de asignatura desde una URL de UniLeón."""
+    match = re.search(r"/snapshots/([^/]+)/([^/?#]+)", url)
+    if not match:
+        return None
+    return match.group(1), match.group(2)
+
+
+def get_unileon_subject_title(snapshot_data: dict[str, object]) -> str | None:
+    """Obtiene el nombre de la asignatura desde el JSON de UniLeón."""
+    i18n_entries = snapshot_data.get("i18n")
+    if not isinstance(i18n_entries, list):
+        return None
+
+    preferred_entry = None
+    for entry in i18n_entries:
+        if not isinstance(entry, dict):
+            continue
+        name = str(entry.get("name") or "").strip()
+        lang = str(entry.get("lang") or "").strip().lower()
+        if name and lang == "es":
+            preferred_entry = entry
+            break
+        if name and preferred_entry is None:
+            preferred_entry = entry
+
+    if not preferred_entry:
+        return None
+
+    return str(preferred_entry.get("name") or "").strip() or None
+
+
+def build_unileon_contents_html(contents: object) -> str:
+    """Convierte la lista de contenidos de UniLeón a HTML académico simple."""
+    if not isinstance(contents, list):
+        return "<p>No se han encontrado contenidos estructurados.</p>"
+
+    filtered_contents: list[dict[str, object]] = []
+    for entry in contents:
+        if not isinstance(entry, dict):
+            continue
+        lang = str(entry.get("lang") or "").strip().lower()
+        if lang == "es":
+            filtered_contents.append(entry)
+
+    if not filtered_contents:
+        filtered_contents = [entry for entry in contents if isinstance(entry, dict)]
+
+    filtered_contents.sort(key=lambda item: item.get("sequence") or 0)
+
+    items_html: list[str] = []
+    for entry in filtered_contents:
+        title = str(entry.get("description") or "").strip()
+        details = str(entry.get("comments") or "").strip()
+        if not title and not details:
+            continue
+
+        title_html = f"<strong>{html.escape(title)}</strong>" if title else ""
+        details_html = html.escape(details)
+        items_html.append(f"<li>{title_html} {details_html}</li>".strip())
+
+    if not items_html:
+        return "<p>No se han encontrado contenidos estructurados.</p>"
+
+    return "<ul>" + "".join(items_html) + "</ul>"
+
+
+def build_unileon_snapshot_html(snapshot_data: dict[str, object]) -> str:
+    """Transforma el JSON de UniLeón en un HTML simple reutilizable por el extractor."""
+    title = get_unileon_subject_title(snapshot_data) or "Asignatura sin título"
+    credits = str(snapshot_data.get("credits") or "").strip()
+
+    i18n_entries = snapshot_data.get("i18n")
+    degree = ""
+    school = ""
+    if isinstance(i18n_entries, list):
+        for entry in i18n_entries:
+            if not isinstance(entry, dict):
+                continue
+            lang = str(entry.get("lang") or "").strip().lower()
+            if lang != "es":
+                continue
+            degree = str(entry.get("degree") or "").strip()
+            school = str(entry.get("school") or "").strip()
+            if degree or school:
+                break
+
+    credits_html = (
+        f"<p><strong>Créditos ECTS:</strong> {html.escape(credits)}</p>"
+        if credits
+        else ""
+    )
+    degree_html = (
+        f"<p><strong>Titulación:</strong> {html.escape(degree)}</p>"
+        if degree
+        else ""
+    )
+    school_html = f"<p><strong>Centro:</strong> {html.escape(school)}</p>" if school else ""
+    contents_html = build_unileon_contents_html(snapshot_data.get("contents"))
+
+    return (
+        "<html><head>"
+        f"<title>{html.escape(title)}</title>"
+        "</head><body>"
+        "<main>"
+        f"<h1>{html.escape(title)}</h1>"
+        f"{degree_html}"
+        f"{school_html}"
+        f"{credits_html}"
+        "<section>"
+        "<h2>Contenidos</h2>"
+        f"{contents_html}"
+        "</section>"
+        "</main>"
+        "</body></html>"
+    )
+
+
+def fetch_unileon_snapshot_html(url: str, session: requests.Session) -> str | None:
+    """Recupera y convierte a HTML las guías del visor de UniLeón."""
+    parsed_parts = parse_unileon_snapshot_url(url)
+    if not parsed_parts:
+        return None
+
+    academic_year, subject_code = parsed_parts
+    api_url = f"https://guiadocenteapi.unileon.es/snapshots/{academic_year}/{subject_code}"
+    response = session.get(
+        api_url,
+        headers={"Accept": "application/json"},
+        timeout=(10, 30),
+    )
+    response.raise_for_status()
+
+    payload = response.json()
+    snapshot_data = payload.get("data")
+    if not isinstance(snapshot_data, dict):
+        return None
+
+    return build_unileon_snapshot_html(snapshot_data)
+
+
+SCRAPER_STRATEGIES = (
+    ScraperStrategy(
+        name="unileon_snapshot_api",
+        host_patterns=("visor-guiadocente.unileon.es",),
+        direct_fetcher=fetch_unileon_snapshot_html,
+    ),
+    ScraperStrategy(
+        name="uniovi_ajax_html",
+        host_patterns=("uniovi.es",),
+        html_enricher=enrich_uniovi_html,
+    ),
+)
+
+
+def get_matching_strategies(url: str) -> list[ScraperStrategy]:
+    """Devuelve las estrategias aplicables a una URL."""
+    return [
+        strategy
+        for strategy in SCRAPER_STRATEGIES
+        if matches_host(url, strategy.host_patterns)
+    ]
+
+
+def fetch_with_direct_strategy(
+    url: str,
+    session: requests.Session,
+    strategies: list[ScraperStrategy],
+) -> str | None:
+    """Intenta obtener el contenido con una estrategia específica de portal."""
+    for strategy in strategies:
+        if strategy.direct_fetcher is None:
+            continue
+
+        html_text = strategy.direct_fetcher(url, session)
+        if html_text:
+            return html_text
+
+    return None
+
+
+def enrich_with_strategies(
+    url: str,
+    html_text: str,
+    session: requests.Session,
+    strategies: list[ScraperStrategy],
+) -> str:
+    """Aplica enriquecimientos específicos sobre el HTML ya descargado."""
+    enriched_html = html_text
+    for strategy in strategies:
+        if strategy.html_enricher is None:
+            continue
+        enriched_html = strategy.html_enricher(enriched_html, session, url)
+    return enriched_html
 
 
 def fetch_html(url: str) -> str:
     """Descarga y devuelve el HTML de una URL.
+
+    La función primero intenta aplicar estrategias específicas del portal
+    universitario. Si ninguna resuelve el contenido, utiliza una descarga HTML
+    genérica y posteriormente aplica, si procede, enriquecimientos del portal.
 
     Args:
         url: Dirección web de la guía docente.
@@ -123,11 +345,14 @@ def fetch_html(url: str) -> str:
         requests.RequestException: Si ocurre un error en la petición HTTP.
     """
     session = build_session()
+    strategies = get_matching_strategies(url)
+
+    direct_html = fetch_with_direct_strategy(url, session, strategies)
+    if direct_html:
+        return direct_html
+
     response = session.get(url, timeout=(10, 30))
     response.raise_for_status()
-    html = response.text
+    html_text = response.text
 
-    if "uniovi.es" in response.url:
-        html = enrich_uniovi_html(html, session)
-
-    return html
+    return enrich_with_strategies(response.url, html_text, session, strategies)
