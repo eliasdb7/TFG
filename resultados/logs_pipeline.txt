@@ -1,0 +1,45 @@
+[STEP] Descarga HTML
+Descripción: Se realiza una petición HTTP a la URL seleccionada para obtener el contenido HTML de la guía docente.
+
+[STEP] Inicio de extracción
+Descripción: Se inicia el análisis estructural del HTML para localizar la información académica principal de la asignatura.
+
+[STEP] Extracción de nombre
+Descripción: Se busca el nombre de la asignatura priorizando encabezados principales y, en segundo término, el título de la página y sus metadatos.
+
+[STEP] Extracción de créditos
+Descripción: Se buscan referencias explícitas a créditos ECTS mediante patrones textuales frecuentes en guías docentes universitarias.
+
+[STEP] Extracción de contenidos
+Descripción: Se intenta localizar una sección de contenidos o temario a partir de encabezados y etiquetas resaltadas dentro del documento HTML.
+
+[STEP] Descarga HTML
+Descripción: Se realiza una petición HTTP a la URL seleccionada para obtener el contenido HTML de la guía docente.
+
+[STEP] Inicio de extracción
+Descripción: Se inicia el análisis estructural del HTML para localizar la información académica principal de la asignatura.
+
+[STEP] Extracción de nombre
+Descripción: Se busca el nombre de la asignatura priorizando encabezados principales y, en segundo término, el título de la página y sus metadatos.
+
+[STEP] Extracción de créditos
+Descripción: Se buscan referencias explícitas a créditos ECTS mediante patrones textuales frecuentes en guías docentes universitarias.
+
+[STEP] Extracción de contenidos
+Descripción: Se intenta localizar una sección de contenidos o temario a partir de encabezados y etiquetas resaltadas dentro del documento HTML.
+
+[STEP] Limpieza de texto
+Descripción: Se normalizan los textos de nombre y contenidos para reducir ruido antes de calcular la similitud textual.
+
+[STEP] Cálculo de similitud de nombre
+Descripción: Se compara el nombre de la asignatura origen con el nombre de la asignatura destino mediante representación TF-IDF y similitud coseno.
+
+[STEP] Cálculo de similitud de contenidos
+Descripción: Se comparan los contenidos de ambas asignaturas mediante representación TF-IDF y similitud coseno.
+
+[STEP] Cálculo de similitud total
+Descripción: Se combina la similitud del nombre y la similitud de contenidos en una puntuación global ponderada.
+
+[STEP] Decisión final
+Descripción: La clasificación final de convalidación todavía no se aplica en esta versión, ya que en esta fase solo se calcula una similitud inicial.
+

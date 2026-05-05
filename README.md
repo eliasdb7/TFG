@@ -9,3 +9,21 @@ Trabajo Fin de Grado orientado al desarrollo de una herramienta de apoyo a conva
 - `resultados/`: salidas generadas
 - `Archivos/`: materiales de apoyo no versionados
 - `data/`: datos de trabajo no versionados
+
+## Ejecución inicial
+
+1. Instalar dependencias:
+   `pip install -r requirements.txt`
+2. Ejecutar la versión base:
+   `python main.py`
+
+## Módulos principales de `src/`
+
+- `scraper.py`: descarga HTML mediante `requests`
+- `extractor.py`: realiza una extracción básica de nombre, ECTS y contenidos
+- `text_processing.py`: incluye una normalización inicial del texto
+- `similarity.py`: reserva el espacio para la futura lógica de similitud
+- `decision.py`: reserva el espacio para la futura lógica de decisión
+- `pipeline.py`: coordina el flujo de descarga, extracción y salida por consola
+- `utils.py`: reúne utilidades auxiliares
+- `dev_logger.py`: documenta cada paso del pipeline con mensajes reutilizables para la memoria del TFG
