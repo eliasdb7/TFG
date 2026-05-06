@@ -31,6 +31,14 @@ CONTENT_SECTION_KEYWORDS = (
     "programa detallado",
 )
 
+HIGH_PRIORITY_CONTENT_SECTION_KEYWORDS = (
+    "programa de contenidos teoricos y practicos",
+    "programa de contenidos teóricos y prácticos",
+    "programa de contenidos",
+    "contenidos teoricos y practicos",
+    "contenidos teóricos y prácticos",
+)
+
 NOISY_NAME_PATTERNS = (
     r"\|\s*.+$",
     r"\s+-\s+universidad.+$",
@@ -88,6 +96,13 @@ def cleanup_subject_name(name: str) -> str:
     cleaned_name = clean_text(name)
     for pattern in NOISY_NAME_PATTERNS:
         cleaned_name = re.sub(pattern, "", cleaned_name, flags=re.IGNORECASE)
+    cleaned_name = re.sub(
+        r"^gu[ií]a docente de\s+",
+        "",
+        cleaned_name,
+        flags=re.IGNORECASE,
+    )
+    cleaned_name = re.sub(r"\s*\(\d+\)\s*$", "", cleaned_name)
     return cleaned_name.strip(" -|")
 
 
@@ -154,6 +169,18 @@ def extract_subject_name(html: str) -> str | None:
     """
     soup = BeautifulSoup(html, "html.parser")
 
+    for tag_name in ("h1",):
+        for tag in soup.find_all(tag_name):
+            text = cleanup_subject_name(get_visible_text(tag))
+            if not text or is_generic_degree_name(text):
+                continue
+            return text
+
+    if soup.title and soup.title.string:
+        title_text = cleanup_subject_name(soup.title.string)
+        if title_text and not is_generic_degree_name(title_text):
+            return title_text
+
     contextual_name = find_name_near_academic_markers(soup)
     if contextual_name:
         return contextual_name
@@ -171,11 +198,6 @@ def extract_subject_name(html: str) -> str | None:
             if not text or is_generic_degree_name(text):
                 continue
             return text
-
-    if soup.title and soup.title.string:
-        title_text = cleanup_subject_name(soup.title.string)
-        if title_text and not is_generic_degree_name(title_text):
-            return title_text
 
     for candidate in get_meta_name_candidates(soup):
         candidate_text = cleanup_subject_name(candidate)
@@ -271,6 +293,53 @@ def is_content_heading(text: str) -> bool:
     """Indica si un texto parece un encabezado de contenidos."""
     normalized_text = normalize_label(text)
     return any(keyword in normalized_text for keyword in CONTENT_SECTION_KEYWORDS)
+
+
+def is_high_priority_content_heading(text: str) -> bool:
+    """Indica si un encabezado corresponde al programa detallado de contenidos."""
+    normalized_text = normalize_label(text)
+    return any(
+        keyword in normalized_text
+        for keyword in HIGH_PRIORITY_CONTENT_SECTION_KEYWORDS
+    )
+
+
+def extract_contents_from_collapsible_section(soup: BeautifulSoup) -> str | None:
+    """Extrae contenidos desde estructuras con etiquetas y paneles asociados.
+
+    Este patrón es especialmente útil en portales como UniOvi, donde el título
+    de la sección aparece en un bloque tipo `div.seccion` y el contenido real se
+    encuentra en un `div.collapse` asociado mediante `data-target`, `href` o
+    `aria-controls`.
+    """
+    candidate_tags = soup.find_all(["div", "button", "a"])
+
+    for tag in candidate_tags:
+        label_text = get_visible_text(tag)
+        if not is_content_heading(label_text):
+            continue
+
+        collapse_ref = (
+            tag.get("data-target")
+            or tag.get("href")
+            or tag.get("aria-controls")
+        )
+        if not collapse_ref:
+            continue
+
+        collapse_id = collapse_ref.lstrip("#").strip()
+        if not collapse_id:
+            continue
+
+        collapse_tag = soup.find(id=collapse_id)
+        if not isinstance(collapse_tag, Tag):
+            continue
+
+        section_text = get_visible_text(collapse_tag)
+        if section_text:
+            return section_text
+
+    return None
 
 
 def is_potential_section_label(tag: Tag) -> bool:
@@ -423,6 +492,20 @@ def get_relevant_body_text(soup: BeautifulSoup) -> str | None:
 def extract_contents(html: str) -> str | None:
     """Extrae la sección de contenidos o temario desde un documento HTML."""
     soup = BeautifulSoup(html, "html.parser")
+
+    collapse_section_text = extract_contents_from_collapsible_section(soup)
+    if collapse_section_text:
+        return collapse_section_text
+
+    for heading_name in ("h1", "h2", "h3", "h4", "h5"):
+        for heading_tag in soup.find_all(heading_name):
+            heading_text = get_visible_text(heading_tag)
+            if not is_high_priority_content_heading(heading_text):
+                continue
+
+            section_text = extract_section_from_heading(heading_tag)
+            if section_text:
+                return section_text
 
     for heading_name in ("h1", "h2", "h3", "h4", "h5"):
         for heading_tag in soup.find_all(heading_name):

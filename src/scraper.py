@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import base64
 import html
+import io
 import json
 import re
 from dataclasses import dataclass
@@ -80,6 +82,220 @@ def wrap_html_section(section_id: str, heading: str, content_html: str) -> str:
     )
 
 
+def normalize_pdf_lines(pdf_text: str) -> list[str]:
+    """Normaliza el texto extraído de un PDF en líneas útiles."""
+    raw_lines = pdf_text.replace("\r", "\n").split("\n")
+    return [line.strip() for line in raw_lines if line.strip()]
+
+
+def normalize_heading_label(text: str) -> str:
+    """Normaliza un texto corto para compararlo como encabezado."""
+    normalized = text.strip().lower()
+    replacements = str.maketrans(
+        {
+            "á": "a",
+            "é": "e",
+            "í": "i",
+            "ó": "o",
+            "ú": "u",
+        }
+    )
+    normalized = normalized.translate(replacements)
+    return re.sub(r"\s+", " ", normalized)
+
+
+def canonicalize_pdf_heading(line: str) -> str:
+    """Devuelve una versión canónica de ciertos encabezados de PDF."""
+    normalized = normalize_heading_label(line)
+
+    if "bloques de contenido" in normalized:
+        return "Contenidos"
+    if normalized == "guia docente":
+        return "Guía docente"
+    if normalized == "metodologia":
+        return "Metodología"
+    if normalized == "evaluacion":
+        return "Evaluación"
+    if normalized == "bibliografia":
+        return "Bibliografía"
+
+    return line
+
+
+def is_pdf_section_heading(line: str) -> bool:
+    """Indica si una línea del PDF parece un encabezado de sección."""
+    normalized = normalize_heading_label(line)
+    known_headings = (
+        "contenidos",
+        "temario",
+        "programa",
+        "competencias",
+        "resultados del aprendizaje",
+        "metodologia",
+        "evaluacion",
+        "bibliografia",
+        "guia docente",
+        "objetivos",
+    )
+
+    if normalized in known_headings:
+        return True
+
+    if "bloques de contenido" in normalized:
+        return True
+
+    if line.isupper() and len(line) <= 100 and not line.endswith("."):
+        return True
+
+    return False
+
+
+def is_pdf_hours_line(line: str) -> bool:
+    """Indica si una línea del PDF corresponde a horas/carga docente."""
+    normalized = normalize_heading_label(line)
+
+    if "creditos u horas" in normalized:
+        return True
+
+    patterns = (
+        r"^\d+(?:[.,]\d+)?\s*horas?\s*:\s*.*$",
+        r"^\d+(?:[.,]\d+)?\s*horas?$",
+        r"^\d+t\s*\d+p$",
+        r"^\d+\s*t\s*\d+\s*p$",
+        r"^total de clases,\s*creditos?\s*u\s*horas?$",
+    )
+    return any(re.match(pattern, normalized) for pattern in patterns)
+
+
+def strip_pdf_hours_fragment(line: str) -> str:
+    """Elimina de una línea el fragmento de horas cuando aparece incrustado."""
+    cleaned_line = re.sub(
+        r"\s+\d+(?:[.,]\d+)?\s*horas?\s*:\s*\d+\s*t\s*[+y]\s*\d+\s*p\b.*$",
+        "",
+        line,
+        flags=re.IGNORECASE,
+    )
+    cleaned_line = re.sub(
+        r"\s+\d+(?:[.,]\d+)?\s*horas?\s*:\s*.*$",
+        "",
+        cleaned_line,
+        flags=re.IGNORECASE,
+    )
+    cleaned_line = re.sub(
+        r"\btotal de clases,\s*cr[eé]ditos?\s*u\s*horas?\b",
+        "",
+        cleaned_line,
+        flags=re.IGNORECASE,
+    )
+    return re.sub(r"\s{2,}", " ", cleaned_line).strip(" :-\t")
+
+
+def infer_pdf_subject_name(lines: list[str], fallback_title: str) -> str:
+    """Intenta inferir el nombre de la asignatura desde el texto del PDF."""
+    skip_prefixes = (
+        "guía docente",
+        "guia docente",
+        "universidad de",
+        "grado en",
+        "doble grado en",
+        "curso academico",
+        "curso académico",
+        "aprobada en",
+    )
+    generic_exact_lines = {
+        "guia docente",
+        "universidad de alcala",
+        "universidad de alcala",
+    }
+
+    for line in lines[:25]:
+        normalized = normalize_heading_label(line)
+        if len(line) < 4 or len(line) > 120:
+            continue
+        if normalized in generic_exact_lines:
+            continue
+        if any(normalized.startswith(prefix) for prefix in skip_prefixes):
+            continue
+        if re.fullmatch(r"[A-Z0-9./ -]+", line) and len(line.split()) <= 2:
+            continue
+        if re.fullmatch(r"\d+(?:er|º|o|a)?\s*curso.*", normalized):
+            continue
+        return line
+
+    return fallback_title
+
+
+def extract_text_from_pdf_bytes(pdf_bytes: bytes) -> str:
+    """Extrae el texto de un PDF usando `pypdf`."""
+    try:
+        from pypdf import PdfReader
+    except ModuleNotFoundError as exc:
+        raise UnsupportedGuideFormatError(
+            "La guía está en PDF, pero falta la dependencia 'pypdf' para procesarla."
+        ) from exc
+
+    reader = PdfReader(io.BytesIO(pdf_bytes))
+    extracted_pages: list[str] = []
+    for page in reader.pages:
+        extracted_pages.append(page.extract_text() or "")
+
+    text = "\n".join(extracted_pages).strip()
+    if not text:
+        raise UnsupportedGuideFormatError(
+            "No se ha podido extraer texto legible del PDF de la guía docente."
+        )
+
+    return text
+
+
+def build_pdf_html(pdf_text: str, pdf_title: str | None = None) -> str:
+    """Convierte texto de PDF a un HTML simple reutilizable por el extractor."""
+    lines = normalize_pdf_lines(pdf_text)
+    fallback_title = (pdf_title or "Guía docente PDF").replace(".pdf", "").strip()
+    subject_name = infer_pdf_subject_name(lines, fallback_title)
+
+    body_parts: list[str] = [f"<h1>{html.escape(subject_name)}</h1>"]
+    current_section_open = False
+
+    for line in lines:
+        cleaned_line = strip_pdf_hours_fragment(line)
+        if not cleaned_line:
+            continue
+
+        if is_pdf_hours_line(cleaned_line):
+            continue
+
+        if is_pdf_section_heading(cleaned_line):
+            heading_text = canonicalize_pdf_heading(cleaned_line)
+            if normalize_heading_label(heading_text) == "guia docente":
+                continue
+            if current_section_open:
+                body_parts.append("</section>")
+            body_parts.append(f"<section><h2>{html.escape(heading_text)}</h2>")
+            current_section_open = True
+            continue
+
+        body_parts.append(f"<p>{html.escape(cleaned_line)}</p>")
+
+    if current_section_open:
+        body_parts.append("</section>")
+
+    body_html = "".join(body_parts)
+    return (
+        "<html><head>"
+        f"<title>{html.escape(subject_name)}</title>"
+        "</head><body><main>"
+        f"{body_html}"
+        "</main></body></html>"
+    )
+
+
+def build_pdf_html_from_bytes(pdf_bytes: bytes, pdf_title: str | None = None) -> str:
+    """Extrae el texto de un PDF y lo transforma en un HTML sintético."""
+    pdf_text = extract_text_from_pdf_bytes(pdf_bytes)
+    return build_pdf_html(pdf_text, pdf_title=pdf_title)
+
+
 def extract_uniovi_ajax_urls(html_text: str) -> tuple[str | None, str | None]:
     """Extrae las URLs AJAX usadas por UniOvi para cargar la guía docente."""
     ajax_urls = re.findall(r"A\.io\.request\('([^']+)'", html_text)
@@ -145,6 +361,32 @@ def enrich_uniovi_html(html_text: str, session: requests.Session, _: str) -> str
     if "</body>" in html_text:
         return html_text.replace("</body>", f"{wrapper}</body>", 1)
     return f"{html_text}\n{wrapper}"
+
+
+def fetch_uah_embedded_pdf_html(url: str, session: requests.Session) -> str | None:
+    """Recupera guías de la UAH cuando la página incrusta un PDF en base64."""
+    parsed_url = urlparse(url)
+    if "uah.es" not in parsed_url.netloc.lower():
+        return None
+    if "/descarga-de-ficheros/" not in parsed_url.path:
+        return None
+
+    response = session.get(url, timeout=(10, 30))
+    response.raise_for_status()
+    html_text = response.text
+
+    match = re.search(
+        r'<embed[^>]+title="([^"]+)"[^>]+src="data:application/pdf;base64,([^"]+)"',
+        html_text,
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return None
+
+    pdf_title = match.group(1).strip()
+    pdf_base64 = match.group(2).strip()
+    pdf_bytes = base64.b64decode(pdf_base64)
+    return build_pdf_html_from_bytes(pdf_bytes, pdf_title=pdf_title)
 
 
 def parse_unileon_snapshot_url(url: str) -> tuple[str, str] | None:
@@ -290,6 +532,12 @@ def fetch_unileon_snapshot_html(url: str, session: requests.Session) -> str | No
 
 SCRAPER_STRATEGIES = (
     ScraperStrategy(
+        name="uah_embedded_pdf",
+        description="Página HTML de la UAH que incrusta la guía docente como PDF en base64.",
+        host_patterns=("uah.es",),
+        direct_fetcher=fetch_uah_embedded_pdf_html,
+    ),
+    ScraperStrategy(
         name="unileon_snapshot_api",
         description="Visor SPA con API JSON propia de la Universidad de León.",
         host_patterns=("visor-guiadocente.unileon.es",),
@@ -374,9 +622,7 @@ def ensure_supported_html_response(response: requests.Response) -> None:
     parsed_url = urlparse(response.url)
 
     if parsed_url.path.lower().endswith(".pdf") or "application/pdf" in content_type:
-        raise UnsupportedGuideFormatError(
-            "La guía encontrada está en formato PDF y todavía no está soportada en la versión actual."
-        )
+        raise UnsupportedGuideFormatError("PDF_DIRECT_RESPONSE")
 
 
 def fetch_page(url: str) -> FetchResult:
@@ -390,7 +636,21 @@ def fetch_page(url: str) -> FetchResult:
 
     response = session.get(url, timeout=(10, 30))
     response.raise_for_status()
-    ensure_supported_html_response(response)
+    try:
+        ensure_supported_html_response(response)
+    except UnsupportedGuideFormatError as exc:
+        if str(exc) != "PDF_DIRECT_RESPONSE":
+            raise
+
+        pdf_title = response.url.rsplit("/", maxsplit=1)[-1]
+        pdf_html = build_pdf_html_from_bytes(response.content, pdf_title=pdf_title)
+        return FetchResult(
+            url=response.url,
+            html=pdf_html,
+            strategy_name="generic_pdf",
+            strategy_description="Extracción básica de texto desde un PDF accesible por URL directa.",
+        )
+
     html_text = response.text
 
     return enrich_with_strategies(response.url, html_text, session, strategies)

@@ -13,6 +13,9 @@ Descripción: Se buscan referencias explícitas a créditos ECTS mediante patron
 [STEP] Extracción de contenidos
 Descripción: Se intenta localizar una sección de contenidos o temario a partir de encabezados y etiquetas resaltadas dentro del documento HTML.
 
+[STEP] Selección de estrategia
+Descripción: Se aplica una estrategia específica del portal si existe; en caso contrario, se utiliza el scraping HTML genérico como mecanismo base.
+
 [STEP] Descarga HTML
 Descripción: Se realiza una petición HTTP a la URL seleccionada para obtener el contenido HTML de la guía docente.
 
@@ -28,6 +31,9 @@ Descripción: Se buscan referencias explícitas a créditos ECTS mediante patron
 [STEP] Extracción de contenidos
 Descripción: Se intenta localizar una sección de contenidos o temario a partir de encabezados y etiquetas resaltadas dentro del documento HTML.
 
+[STEP] Selección de estrategia
+Descripción: Se aplica una estrategia específica del portal si existe; en caso contrario, se utiliza el scraping HTML genérico como mecanismo base.
+
 [STEP] Limpieza de texto
 Descripción: Se normalizan los textos de nombre y contenidos para reducir ruido antes de calcular la similitud textual.
 
@@ -39,6 +45,12 @@ Descripción: Se comparan los contenidos de ambas asignaturas mediante represent
 
 [STEP] Cálculo de similitud total
 Descripción: Se combina la similitud del nombre y la similitud de contenidos en una puntuación global ponderada.
+
+[STEP] Análisis auxiliar de ECTS
+Descripción: Se calcula una señal complementaria basada en la diferencia de créditos ECTS, sin incorporarla todavía al valor numérico final de similitud.
+
+[STEP] Interpretación de afinidad
+Descripción: Se transforma la puntuación numérica en una salida interpretativa inicial de afinidad entre asignaturas.
 
 [STEP] Decisión final
 Descripción: La clasificación final de convalidación todavía no se aplica en esta versión, ya que en esta fase solo se calcula una similitud inicial.

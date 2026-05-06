@@ -2,17 +2,22 @@
 
 from __future__ import annotations
 
+import csv
+import json
+from pathlib import Path
+
 import requests
 
 from src.dev_logger import log_step, reset_log
 from src.extractor import extract_basic_info
-from src.scraper import (
-    UnsupportedGuideFormatError,
-    fetch_page,
-)
+from src.scraper import UnsupportedGuideFormatError, fetch_page
 from src.similarity import compute_subject_similarity
 from src.text_processing import clean_text
 from src.utils import truncate_text
+
+
+RESULTS_JSON_PATH = Path("resultados/resultados_comparacion.json")
+RESULTS_CSV_PATH = Path("resultados/resultados_comparacion.csv")
 
 
 def display_extraction_result(label: str, info: dict[str, object]) -> None:
@@ -22,7 +27,10 @@ def display_extraction_result(label: str, info: dict[str, object]) -> None:
     print(f"- Estrategia de scraping: {info.get('estrategia_scraping')}")
     print(f"- Nombre extraído: {info.get('nombre')}")
     print(f"- Créditos extraídos: {info.get('ects')}")
-    print(f"- Contenidos (primeros 500 caracteres): {truncate_text(str(info.get('contenidos') or ''), 500)}")
+    print(
+        f"- Contenidos (primeros 500 caracteres): "
+        f"{truncate_text(str(info.get('contenidos') or ''), 500)}"
+    )
 
     warnings = info.get("warnings", [])
     print("- Warnings:")
@@ -38,7 +46,7 @@ def display_comparison_result(
     index: int,
     subject_origin: dict[str, object],
     subject_target: dict[str, object],
-    similarity_result: dict[str, float],
+    similarity_result: dict[str, float | str | bool | None],
 ) -> None:
     """Muestra por consola el resultado de una comparación."""
     print("=" * 50)
@@ -50,8 +58,74 @@ def display_comparison_result(
     print(f"Similitud nombre: {similarity_result['similitud_nombre'] * 100:.1f}%")
     print(f"Similitud contenidos: {similarity_result['similitud_contenidos'] * 100:.1f}%")
     print(f"Similitud total: {similarity_result['similitud_total'] * 100:.1f}%")
+    print(f"Compatibilidad ECTS: {similarity_result['compatibilidad_ects']}")
+    print(f"Afinidad interpretada: {similarity_result['afinidad_interpretada']}")
     print("=" * 50)
     print()
+
+
+def ensure_results_directory() -> None:
+    """Garantiza la existencia del directorio de resultados."""
+    Path("resultados").mkdir(parents=True, exist_ok=True)
+
+
+def save_comparison_results(
+    subject_origin: dict[str, object],
+    comparisons: list[dict[str, object]],
+) -> None:
+    """Guarda los resultados de la comparación en JSON y CSV."""
+    ensure_results_directory()
+
+    json_payload = {
+        "asignatura_origen": subject_origin,
+        "comparaciones": comparisons,
+    }
+    with RESULTS_JSON_PATH.open("w", encoding="utf-8") as json_file:
+        json.dump(json_payload, json_file, ensure_ascii=False, indent=2)
+
+    csv_rows: list[dict[str, object]] = []
+    for comparison in comparisons:
+        subject_target = comparison["asignatura_destino"]
+        similarity = comparison["similitud"]
+        csv_rows.append(
+            {
+                "origen_url": subject_origin.get("url"),
+                "origen_nombre": subject_origin.get("nombre"),
+                "origen_ects": subject_origin.get("ects"),
+                "destino_url": subject_target.get("url"),
+                "destino_nombre": subject_target.get("nombre"),
+                "destino_ects": subject_target.get("ects"),
+                "estrategia_destino": subject_target.get("estrategia_scraping"),
+                "similitud_nombre": similarity.get("similitud_nombre"),
+                "similitud_contenidos": similarity.get("similitud_contenidos"),
+                "similitud_total": similarity.get("similitud_total"),
+                "diferencia_ects": similarity.get("diferencia_ects"),
+                "compatibilidad_ects": similarity.get("compatibilidad_ects"),
+                "afinidad_interpretada": similarity.get("afinidad_interpretada"),
+            }
+        )
+
+    with RESULTS_CSV_PATH.open("w", encoding="utf-8", newline="") as csv_file:
+        writer = csv.DictWriter(
+            csv_file,
+            fieldnames=[
+                "origen_url",
+                "origen_nombre",
+                "origen_ects",
+                "destino_url",
+                "destino_nombre",
+                "destino_ects",
+                "estrategia_destino",
+                "similitud_nombre",
+                "similitud_contenidos",
+                "similitud_total",
+                "diferencia_ects",
+                "compatibilidad_ects",
+                "afinidad_interpretada",
+            ],
+        )
+        writer.writeheader()
+        writer.writerows(csv_rows)
 
 
 def process_subject(url: str, label: str) -> dict[str, object]:
@@ -170,6 +244,7 @@ def run_pipeline(url_origen: str, urls_destino: list[str]) -> None:
 
     subject_origin = process_subject(url_origen, "Asignatura origen")
     subject_targets: list[dict[str, object]] = []
+    comparisons: list[dict[str, object]] = []
 
     for index, url_destino in enumerate(urls_destino, start=1):
         subject_target = process_subject(url_destino, f"Asignatura destino {index}")
@@ -196,10 +271,30 @@ def run_pipeline(url_origen: str, urls_destino: list[str]) -> None:
             "Cálculo de similitud total",
             "Se combina la similitud del nombre y la similitud de contenidos en una puntuación global ponderada.",
         )
+        log_step(
+            "Análisis auxiliar de ECTS",
+            "Se calcula una señal complementaria basada en la diferencia de créditos ECTS, sin incorporarla todavía al valor numérico final de similitud.",
+        )
+        log_step(
+            "Interpretación de afinidad",
+            "Se transforma la puntuación numérica en una salida interpretativa inicial de afinidad entre asignaturas.",
+        )
         display_comparison_result(index, subject_origin, subject_target, similarity_result)
+        comparisons.append(
+            {
+                "indice": index,
+                "asignatura_destino": subject_target,
+                "similitud": similarity_result,
+            }
+        )
+
+    if comparisons:
+        save_comparison_results(subject_origin, comparisons)
+        print(f"Resultados guardados en: {RESULTS_JSON_PATH}")
+        print(f"Resumen tabular guardado en: {RESULTS_CSV_PATH}\n")
 
     log_step(
         "Decisión final",
         "La clasificación final de convalidación todavía no se aplica en esta versión, ya que en esta fase solo se calcula una similitud inicial.",
     )
-    print("Pipeline base finalizado.")
+    # print("Pipeline base finalizado.")

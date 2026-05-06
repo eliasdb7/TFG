@@ -9,7 +9,7 @@ LOG_FILE_PATH = Path("resultados/logs_pipeline.txt")
 
 
 def log_step(step_name: str, description: str) -> None:
-    """Muestra un paso del pipeline y lo guarda opcionalmente en un fichero.
+    """Registra un paso del pipeline en un fichero de texto.
 
     Los mensajes se redactan en un tono académico sencillo para poder
     reutilizarse en la memoria del TFG.
@@ -19,7 +19,6 @@ def log_step(step_name: str, description: str) -> None:
         description: Descripción del objetivo del paso.
     """
     message = f"[STEP] {step_name}\nDescripción: {description}\n"
-    print(message)
 
     LOG_FILE_PATH.parent.mkdir(parents=True, exist_ok=True)
     with LOG_FILE_PATH.open("a", encoding="utf-8") as log_file:
