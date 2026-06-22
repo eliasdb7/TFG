@@ -10,3 +10,4 @@ def make_decision(similarity_score: float | None) -> str:
     """
     _ = similarity_score
     return "Pendiente de implementación"
+
