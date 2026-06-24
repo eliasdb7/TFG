@@ -56,6 +56,7 @@ docs/
 docs/*.docx
 docs/*.pdf
 tmp_doc_analysis/
+figuras/
 # =========================
 # Resultados generados (si son pesados o regenerables)
 # =========================
