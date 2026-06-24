@@ -8,6 +8,7 @@ import io
 import json
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable
 from urllib.parse import urlparse
 
@@ -51,6 +52,8 @@ class FetchResult:
     strategy_description: str
 
 
+# HTTP session
+
 def build_session() -> requests.Session:
     """Crea una sesión HTTP con cabeceras y reintentos básicos."""
     session = requests.Session()
@@ -82,6 +85,8 @@ def wrap_html_section(section_id: str, heading: str, content_html: str) -> str:
     )
 
 
+# PDF helpers
+
 def normalize_pdf_lines(pdf_text: str) -> list[str]:
     """Normaliza el texto extraído de un PDF en líneas útiles."""
     raw_lines = pdf_text.replace("\r", "\n").split("\n")
@@ -108,13 +113,41 @@ def canonicalize_pdf_heading(line: str) -> str:
     """Devuelve una versión canónica de ciertos encabezados de PDF."""
     normalized = normalize_heading_label(line)
 
+    if normalized in {
+        "contenidos",
+        "contenido",
+        "contenidos o bloques tematicos",
+        "contenidos o bloques temáticos",
+        "bloques tematicos",
+        "bloques temáticos",
+        "bloques de contenido",
+    }:
+        return "Contenidos"
     if "bloques de contenido" in normalized:
         return "Contenidos"
     if normalized == "guia docente":
         return "Guía docente"
+    if normalized in {
+        "datos basicos de la asignatura",
+        "datos básicos de la asignatura",
+    }:
+        return "Datos básicos de la asignatura"
+    if normalized in {
+        "objetivos y resultados del aprendizaje",
+        "resultados del aprendizaje",
+    }:
+        return "Resultados del aprendizaje"
+    if normalized == "actividades formativas y horas lectivas":
+        return "Actividades formativas"
     if normalized == "metodologia":
         return "Metodología"
+    if normalized == "metodologia de enseñanza-aprendizaje":
+        return "Metodología"
+    if normalized == "metodologia de ensenanza-aprendizaje":
+        return "Metodología"
     if normalized == "evaluacion":
+        return "Evaluación"
+    if normalized == "sistemas y criterios de evaluacion y calificacion":
         return "Evaluación"
     if normalized == "bibliografia":
         return "Bibliografía"
@@ -125,23 +158,55 @@ def canonicalize_pdf_heading(line: str) -> str:
 def is_pdf_section_heading(line: str) -> bool:
     """Indica si una línea del PDF parece un encabezado de sección."""
     normalized = normalize_heading_label(line)
-    known_headings = (
+    exact_headings = {
         "contenidos",
+        "contenido",
+        "contenidos o bloques tematicos",
+        "bloques tematicos",
+        "bloques de contenido",
         "temario",
         "programa",
+        "programa de la asignatura",
         "competencias",
+        "datos basicos de la asignatura",
         "resultados del aprendizaje",
+        "objetivos y resultados del aprendizaje",
+        "actividades formativas y horas lectivas",
         "metodologia",
+        "metodologia de ensenanza-aprendizaje",
         "evaluacion",
+        "sistemas y criterios de evaluacion y calificacion",
         "bibliografia",
         "guia docente",
         "objetivos",
+    }
+    heading_prefixes = (
+        "contenidos ",
+        "temario ",
+        "programa ",
+        "competencias ",
+        "objetivos ",
+        "resultados del aprendizaje ",
+        "metodologia ",
+        "evaluacion ",
+        "bibliografia ",
     )
 
-    if normalized in known_headings:
+    if normalized in exact_headings:
         return True
 
     if "bloques de contenido" in normalized:
+        return True
+
+    if normalized.startswith(heading_prefixes) and len(line) <= 120:
+        return True
+
+    if (
+        len(line) <= 120
+        and not line.endswith(".")
+        and re.fullmatch(r"[A-ZÁÉÍÓÚÜÑa-záéíóúüñ0-9/() ,:+-]+", line)
+        and any(keyword in normalized for keyword in ("contenidos", "temario", "programa", "metodologia", "evaluacion"))
+    ):
         return True
 
     if line.isupper() and len(line) <= 100 and not line.endswith("."):
@@ -192,6 +257,14 @@ def strip_pdf_hours_fragment(line: str) -> str:
 
 def infer_pdf_subject_name(lines: list[str], fallback_title: str) -> str:
     """Intenta inferir el nombre de la asignatura desde el texto del PDF."""
+    explicit_label_patterns = (
+        r"^nombre\s+asignatura\s*:\s*(.+)$",
+        r"^nombre\s+de\s+la\s+asignatura\s*:\s*(.+)$",
+        r"^asignatura\s*:\s*(.+)$",
+        r"^denominacion\s*:\s*(.+)$",
+        r"^denominación\s*:\s*(.+)$",
+        r"^materia\s*:\s*(.+)$",
+    )
     skip_prefixes = (
         "guía docente",
         "guia docente",
@@ -203,10 +276,21 @@ def infer_pdf_subject_name(lines: list[str], fallback_title: str) -> str:
         "aprobada en",
     )
     generic_exact_lines = {
+        "datos basicos de la asignatura",
         "guia docente",
         "universidad de alcala",
         "universidad de alcala",
+        "programa de la asignatura",
     }
+
+    for line in lines[:40]:
+        for pattern in explicit_label_patterns:
+            match = re.match(pattern, line, flags=re.IGNORECASE)
+            if not match:
+                continue
+            candidate = match.group(1).strip(" .:-")
+            if candidate:
+                return candidate
 
     for line in lines[:25]:
         normalized = normalize_heading_label(line)
@@ -296,6 +380,15 @@ def build_pdf_html_from_bytes(pdf_bytes: bytes, pdf_title: str | None = None) ->
     return build_pdf_html(pdf_text, pdf_title=pdf_title)
 
 
+def build_pdf_html_from_file(pdf_path: str | Path) -> str:
+    """Extrae el texto de un PDF local y lo transforma en HTML sintético."""
+    local_path = Path(pdf_path)
+    pdf_bytes = local_path.read_bytes()
+    return build_pdf_html_from_bytes(pdf_bytes, pdf_title=local_path.name)
+
+
+# Uniovi origin strategy
+
 def extract_uniovi_ajax_urls(html_text: str) -> tuple[str | None, str | None]:
     """Extrae las URLs AJAX usadas por UniOvi para cargar la guía docente."""
     ajax_urls = re.findall(r"A\.io\.request\('([^']+)'", html_text)
@@ -363,8 +456,10 @@ def enrich_uniovi_html(html_text: str, session: requests.Session, _: str) -> str
     return f"{html_text}\n{wrapper}"
 
 
-def fetch_uah_embedded_pdf_html(url: str, session: requests.Session) -> str | None:
-    """Recupera guías de la UAH cuando la página incrusta un PDF en base64."""
+# Generic destination strategies
+
+def fetch_embedded_base64_pdf_html(url: str, session: requests.Session) -> str | None:
+    """Recupera una guía cuando la página incrusta un PDF en base64."""
     parsed_url = urlparse(url)
     if "uah.es" not in parsed_url.netloc.lower():
         return None
@@ -389,16 +484,16 @@ def fetch_uah_embedded_pdf_html(url: str, session: requests.Session) -> str | No
     return build_pdf_html_from_bytes(pdf_bytes, pdf_title=pdf_title)
 
 
-def parse_unileon_snapshot_url(url: str) -> tuple[str, str] | None:
-    """Extrae curso académico y código de asignatura desde una URL de UniLeón."""
+def parse_snapshot_api_reference(url: str) -> tuple[str, str] | None:
+    """Extrae curso académico y código de asignatura desde una URL snapshot."""
     match = re.search(r"/snapshots/([^/]+)/([^/?#]+)", url)
     if not match:
         return None
     return match.group(1), match.group(2)
 
 
-def get_unileon_subject_title(snapshot_data: dict[str, object]) -> str | None:
-    """Obtiene el nombre de la asignatura desde el JSON de UniLeón."""
+def get_snapshot_api_subject_title(snapshot_data: dict[str, object]) -> str | None:
+    """Obtiene el nombre de la asignatura desde una respuesta JSON snapshot."""
     i18n_entries = snapshot_data.get("i18n")
     if not isinstance(i18n_entries, list):
         return None
@@ -421,8 +516,8 @@ def get_unileon_subject_title(snapshot_data: dict[str, object]) -> str | None:
     return str(preferred_entry.get("name") or "").strip() or None
 
 
-def build_unileon_contents_html(contents: object) -> str:
-    """Convierte la lista de contenidos de UniLeón a HTML académico simple."""
+def build_snapshot_api_contents_html(contents: object) -> str:
+    """Convierte la lista de contenidos snapshot a HTML académico simple."""
     if not isinstance(contents, list):
         return "<p>No se han encontrado contenidos estructurados.</p>"
 
@@ -456,9 +551,9 @@ def build_unileon_contents_html(contents: object) -> str:
     return "<ul>" + "".join(items_html) + "</ul>"
 
 
-def build_unileon_snapshot_html(snapshot_data: dict[str, object]) -> str:
-    """Transforma el JSON de UniLeón en un HTML simple reutilizable por el extractor."""
-    title = get_unileon_subject_title(snapshot_data) or "Asignatura sin título"
+def build_snapshot_api_response_html(snapshot_data: dict[str, object]) -> str:
+    """Transforma una respuesta snapshot JSON en HTML reutilizable por el extractor."""
+    title = get_snapshot_api_subject_title(snapshot_data) or "Asignatura sin título"
     credits = str(snapshot_data.get("credits") or "").strip()
 
     i18n_entries = snapshot_data.get("i18n")
@@ -487,7 +582,7 @@ def build_unileon_snapshot_html(snapshot_data: dict[str, object]) -> str:
         else ""
     )
     school_html = f"<p><strong>Centro:</strong> {html.escape(school)}</p>" if school else ""
-    contents_html = build_unileon_contents_html(snapshot_data.get("contents"))
+    contents_html = build_snapshot_api_contents_html(snapshot_data.get("contents"))
 
     return (
         "<html><head>"
@@ -507,9 +602,9 @@ def build_unileon_snapshot_html(snapshot_data: dict[str, object]) -> str:
     )
 
 
-def fetch_unileon_snapshot_html(url: str, session: requests.Session) -> str | None:
-    """Recupera y convierte a HTML las guías del visor de UniLeón."""
-    parsed_parts = parse_unileon_snapshot_url(url)
+def fetch_snapshot_api_html(url: str, session: requests.Session) -> str | None:
+    """Recupera y convierte a HTML una guía disponible a través de snapshot JSON."""
+    parsed_parts = parse_snapshot_api_reference(url)
     if not parsed_parts:
         return None
 
@@ -527,21 +622,21 @@ def fetch_unileon_snapshot_html(url: str, session: requests.Session) -> str | No
     if not isinstance(snapshot_data, dict):
         return None
 
-    return build_unileon_snapshot_html(snapshot_data)
+    return build_snapshot_api_response_html(snapshot_data)
 
 
 SCRAPER_STRATEGIES = (
     ScraperStrategy(
-        name="uah_embedded_pdf",
-        description="Página HTML de la UAH que incrusta la guía docente como PDF en base64.",
+        name="embedded_base64_pdf",
+        description="Página HTML que incrusta la guía docente como PDF en base64.",
         host_patterns=("uah.es",),
-        direct_fetcher=fetch_uah_embedded_pdf_html,
+        direct_fetcher=fetch_embedded_base64_pdf_html,
     ),
     ScraperStrategy(
-        name="unileon_snapshot_api",
-        description="Visor SPA con API JSON propia de la Universidad de León.",
+        name="snapshot_api_html",
+        description="Visor con API JSON snapshot que requiere reconstrucción a HTML académico.",
         host_patterns=("visor-guiadocente.unileon.es",),
-        direct_fetcher=fetch_unileon_snapshot_html,
+        direct_fetcher=fetch_snapshot_api_html,
     ),
     ScraperStrategy(
         name="uniovi_ajax_html",
@@ -647,7 +742,7 @@ def fetch_page(url: str) -> FetchResult:
         return FetchResult(
             url=response.url,
             html=pdf_html,
-            strategy_name="generic_pdf",
+            strategy_name="remote_pdf",
             strategy_description="Extracción básica de texto desde un PDF accesible por URL directa.",
         )
 

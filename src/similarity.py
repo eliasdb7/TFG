@@ -164,7 +164,7 @@ def compute_subject_similarity(
 
     similitud_nombre = compute_text_similarity(nombre_a, nombre_b)
     similitud_contenidos = compute_text_similarity(contenidos_a, contenidos_b)
-    similitud_total = (0.30 * similitud_nombre) + (0.70 * similitud_contenidos)
+    similitud_total = similitud_contenidos
 
     ects_signal = compute_ects_signal(
         subject_a.get("ects") if isinstance(subject_a.get("ects"), (int, float)) else None,

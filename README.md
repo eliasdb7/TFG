@@ -17,23 +17,36 @@ Trabajo Fin de Grado orientado al desarrollo de una herramienta de apoyo a conva
 2. Ejecutar la versión base:
    `python main.py`
 
+## Flujo de entrada actual
+
+La versión actual asume que:
+
+- la asignatura de origen se introduce siempre mediante una guía docente de Uniovi
+- la asignatura de destino puede introducirse de tres formas:
+  - URL de guía docente
+  - contenidos pegados manualmente por consola
+  - PDF local de la guía docente
+
 ## Cómo funciona la similitud en la V1
 
-La versión actual calcula una similitud inicial basada en:
+La versión actual calcula una similitud inicial basada principalmente en:
 
-- similitud del nombre de la asignatura
 - similitud del bloque de contenidos
 
-Ambas se calculan mediante:
+La puntuación principal se calcula mediante:
 
 - limpieza y normalización de texto
 - vectorización `TF-IDF`
 - `cosine similarity`
 
-La combinación actual es:
+La puntuación final actual es:
 
-- `30%` similitud del nombre
-- `70%` similitud de contenidos
+- `100%` similitud de contenidos
+
+Además, se muestran como señales auxiliares:
+
+- similitud del nombre de la asignatura
+- compatibilidad de créditos ECTS
 
 Además, los créditos ECTS se analizan como una señal auxiliar:
 
@@ -47,20 +60,20 @@ Esta señal todavía no modifica el valor numérico de similitud, pero sí se ut
 
 La herramienta utiliza una arquitectura de scraping por capas:
 
+- `uniovi_ajax_html`: estrategia específica para la asignatura de origen en Uniovi.
 - `generic_html`: descarga HTML general para guías donde la información ya está presente en la página.
-- adaptadores específicos por portal: se activan cuando una universidad publica sus guías mediante estructuras no estándar, como AJAX o APIs JSON.
+- estrategias técnicas de destino: se activan cuando la guía requiere un tratamiento especial por el formato de publicación.
 
-Actualmente se incluyen adaptadores para:
+Actualmente se incluyen estrategias de destino para patrones como:
 
-- `uniovi_ajax_html`: Universidad de Oviedo
-- `unileon_snapshot_api`: Universidad de León
-- `uah_embedded_pdf`: Universidad de Alcalá cuando la guía se incrusta como PDF en una página HTML
+- `snapshot_api_html`: visor con API JSON snapshot
+- `embedded_base64_pdf`: página HTML que incrusta un PDF en base64
 
 Además, el sistema incluye una vía básica para PDFs accesibles por URL directa:
 
-- `generic_pdf`: descarga el PDF, extrae su texto y genera un HTML sintético para reutilizar el extractor actual
+- `remote_pdf`: descarga el PDF, extrae su texto y genera un HTML sintético para reutilizar el extractor actual
 
-Si una universidad de destino no dispone todavía de adaptador, el sistema intenta primero el scraping genérico. Si la guía está en PDF, el sistema intenta una extracción básica de texto. Si no puede extraerse texto legible, el pipeline lo informa mediante warnings.
+Si una guía de destino no dispone todavía de una estrategia especial, el sistema intenta primero el scraping genérico. Si la guía está en PDF, el sistema intenta una extracción básica de texto. Si no puede extraerse texto legible, el pipeline lo informa mediante warnings.
 
 ## Resultados guardados
 
@@ -72,11 +85,12 @@ En cada ejecución con comparaciones destino, la herramienta guarda:
 
 ## Módulos principales de `src/`
 
-- `scraper.py`: descarga HTML y aplica estrategias específicas por universidad cuando es necesario
+- `scraper.py`: descarga HTML y aplica estrategias específicas por tipo de fuente cuando es necesario
+- `input_sources.py`: gestiona la entrada interactiva de origen Uniovi y destino por URL, texto manual o PDF local
 - `extractor.py`: realiza una extracción básica de nombre, ECTS y contenidos
 - `text_processing.py`: incluye una normalización inicial del texto
 - `similarity.py`: reserva el espacio para la futura lógica de similitud
-  Actualmente calcula similitud TF-IDF, señal auxiliar de ECTS y afinidad interpretativa.
+  Actualmente calcula similitud TF-IDF por contenidos, similitud auxiliar de nombre, señal auxiliar de ECTS y afinidad interpretativa.
 - `decision.py`: reserva el espacio para la futura lógica de decisión
 - `pipeline.py`: coordina el flujo de descarga, extracción y salida por consola
 - `utils.py`: reúne utilidades auxiliares
