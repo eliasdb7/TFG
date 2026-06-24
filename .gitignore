@@ -55,7 +55,7 @@ data/
 docs/
 docs/*.docx
 docs/*.pdf
-
+tmp_doc_analysis/
 # =========================
 # Resultados generados (si son pesados o regenerables)
 # =========================
