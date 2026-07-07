@@ -128,6 +128,13 @@ Además, el sistema incluye una vía básica para PDFs accesibles por URL direct
 
 Si una guía de destino no dispone todavía de una estrategia especial, el sistema intenta primero el scraping genérico. Si la guía está en PDF, el sistema intenta una extracción básica de texto. Si no puede extraerse texto legible, el pipeline lo informa mediante warnings.
 
+En el cierre de la `version_01`, el comportamiento más consolidado y validado es:
+
+- origen Uniovi mediante `uniovi_ajax_html`
+- destino por URL cuando la fuente es compatible con las estrategias implementadas
+- destino por texto manual introducido por consola
+- destino por PDF local reutilizando el extractor actual a través de HTML sintético
+
 ## Resultados guardados
 
 En cada ejecución con comparaciones destino, la herramienta guarda:
@@ -148,8 +155,8 @@ Los resultados de esta version registran también:
 - `input_sources.py`: gestiona la entrada interactiva de origen Uniovi y destino por URL, texto manual o PDF local
 - `extractor.py`: realiza una extracción básica de nombre, ECTS y contenidos
 - `text_processing.py`: incluye una normalización inicial del texto
-- `similarity.py`: reserva el espacio para la futura lógica de similitud
-  Actualmente calcula similitud TF-IDF por contenidos, similitud auxiliar de nombre, señal auxiliar de ECTS y afinidad interpretativa.
+- `similarity.py`: implementa la lógica de comparación de la `version_01`
+  Calcula similitud TF-IDF con similitud coseno para nombre y contenidos, toma como puntuación principal la similitud de contenidos y genera señales auxiliares basadas en nombre, ECTS y afinidad interpretativa.
 - `decision.py`: reserva el espacio para la futura lógica de decisión
 - `pipeline.py`: coordina el flujo de descarga, extracción y salida por consola
 - `utils.py`: reúne utilidades auxiliares
