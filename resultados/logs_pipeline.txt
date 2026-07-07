@@ -16,8 +16,23 @@ Descripción: Se intenta localizar una sección de contenidos o temario a partir
 [STEP] Selección de estrategia
 Descripción: Se aplica una estrategia específica del portal si existe; en caso contrario, se utiliza el scraping HTML genérico como mecanismo base.
 
-[STEP] Lectura de PDF local
-Descripción: La asignatura destino se obtiene a partir de un PDF local cuyo texto se transforma en un HTML sintético para reutilizar el extractor actual.
+[STEP] Descarga HTML
+Descripción: Se realiza una petición HTTP a la URL seleccionada para obtener el contenido HTML de la guía docente.
+
+[STEP] Inicio de extracción
+Descripción: Se inicia el análisis estructural del HTML para localizar la información académica principal de la asignatura.
+
+[STEP] Extracción de nombre
+Descripción: Se busca el nombre de la asignatura priorizando encabezados principales y, en segundo término, el título de la página y sus metadatos.
+
+[STEP] Extracción de créditos
+Descripción: Se buscan referencias explícitas a créditos ECTS mediante patrones textuales frecuentes en guías docentes universitarias.
+
+[STEP] Extracción de contenidos
+Descripción: Se intenta localizar una sección de contenidos o temario a partir de encabezados y etiquetas resaltadas dentro del documento HTML.
+
+[STEP] Selección de estrategia
+Descripción: Se aplica una estrategia específica del portal si existe; en caso contrario, se utiliza el scraping HTML genérico como mecanismo base.
 
 [STEP] Limpieza de texto
 Descripción: Se normalizan los textos de nombre y contenidos para reducir ruido antes de calcular la similitud textual.

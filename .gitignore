@@ -79,5 +79,7 @@ checkpoints/
 .mypy_cache/
 .ruff_cache/
 .cache/
+tmp_comments_*.json
+tmp_preserve_comments_*.json
 
 Iteraciones.md
