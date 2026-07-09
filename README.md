@@ -1,97 +1,107 @@
 # TFG - Convalidaciones SICUE con NLP
 
-Trabajo Fin de Grado orientado al desarrollo de una herramienta de apoyo a convalidaciones SICUE entre universidades españolas mediante comparación automática de guías docentes.
+Este `README.md` describe el estado de la rama `version_02`.
+
+Trabajo Fin de Grado orientado al desarrollo de una herramienta de apoyo a convalidaciones SICUE entre universidades espanolas mediante comparacion automatica de guias docentes.
 
 ## Estructura
-- `src/`: código fuente
-- `docs/`: notas, diseño y documentación
+- `src/`: codigo fuente
+- `docs/`: notas, diseno y documentacion
 - `figuras/`: figuras para la memoria
 - `resultados/`: salidas generadas
 - `Archivos/`: materiales de apoyo no versionados
 - `data/`: datos de trabajo no versionados
 
-## Ejecución inicial
+## Ejecucion inicial
 
 1. Instalar dependencias:
    `pip install -r requirements.txt`
-2. Ejecutar la versión base:
+2. Ejecutar la version base:
    `python main.py`
 
 ## Flujo de entrada actual
 
-La versión actual asume que:
+La version actual asume que:
 
-- la asignatura de origen se introduce siempre mediante una guía docente de Uniovi
+- la asignatura de origen se introduce siempre mediante una guia docente de Uniovi
 - la asignatura de destino puede introducirse de tres formas:
-  - URL de guía docente
+  - URL de guia docente
   - contenidos pegados manualmente por consola
-  - PDF local de la guía docente
+  - PDF local de la guia docente
 
-## Cómo funciona la similitud en la V1
+## Como funciona la similitud en la V2
 
-La versión actual calcula una similitud inicial basada principalmente en:
+La version actual mantiene el pipeline de extraccion de la V1, pero sustituye el motor de comparacion por una comparacion semantica de contenidos.
 
-- similitud del bloque de contenidos
+La herramienta calcula:
 
-La puntuación principal se calcula mediante:
+- una similitud semantica de contenidos mediante embeddings multilingues
+- una senal auxiliar de compatibilidad ECTS
+- una afinidad interpretada derivada de la similitud semantica y del contexto ECTS
 
-- limpieza y normalización de texto
-- vectorización `TF-IDF`
-- `cosine similarity`
+La puntuacion principal de la V2 es:
 
-La puntuación final actual es:
+- `100%` similitud semantica de contenidos
 
-- `100%` similitud de contenidos
+Los ECTS no alteran el valor numerico principal, pero si ayudan a contextualizar el resultado final.
 
-Además, se muestran como señales auxiliares:
+## Motor semantico de la V2
 
-- similitud del nombre de la asignatura
-- compatibilidad de créditos ECTS
+La V2 utiliza un modelo multilingue de `sentence-transformers` para representar semanticamente los contenidos de las asignaturas.
 
-Además, los créditos ECTS se analizan como una señal auxiliar:
+La estrategia general es:
 
-- coincidencia exacta
-- compatibilidad con margen
-- diferencia relevante
+- limpiar el texto de contenidos
+- segmentarlo en fragmentos manejables
+- generar embeddings para cada fragmento
+- comparar origen y destino mediante similitud coseno en el espacio semantico
 
-Esta señal todavía no modifica el valor numérico de similitud, pero sí se utiliza para generar una interpretación textual de afinidad.
+Esto permite detectar afinidad entre asignaturas aunque los contenidos no coincidan literalmente en el vocabulario utilizado.
 
 ## Estrategia de scraping
 
 La herramienta utiliza una arquitectura de scraping por capas:
 
-- `uniovi_ajax_html`: estrategia específica para la asignatura de origen en Uniovi.
-- `generic_html`: descarga HTML general para guías donde la información ya está presente en la página.
-- estrategias técnicas de destino: se activan cuando la guía requiere un tratamiento especial por el formato de publicación.
+- `uniovi_ajax_html`: estrategia especifica para la asignatura de origen en Uniovi
+- `generic_html`: descarga HTML general para guias donde la informacion ya esta presente en la pagina
+- estrategias tecnicas de destino: se activan cuando la guia requiere un tratamiento especial por el formato de publicacion
 
 Actualmente se incluyen estrategias de destino para patrones como:
 
 - `snapshot_api_html`: visor con API JSON snapshot
-- `embedded_base64_pdf`: página HTML que incrusta un PDF en base64
+- `embedded_base64_pdf`: pagina HTML que incrusta un PDF en base64
 
-Además, el sistema incluye una vía básica para PDFs accesibles por URL directa:
+Ademas, el sistema incluye una via basica para PDFs accesibles por URL directa:
 
-- `remote_pdf`: descarga el PDF, extrae su texto y genera un HTML sintético para reutilizar el extractor actual
+- `remote_pdf`: descarga el PDF, extrae su texto y genera un HTML sintetico para reutilizar el extractor actual
 
-Si una guía de destino no dispone todavía de una estrategia especial, el sistema intenta primero el scraping genérico. Si la guía está en PDF, el sistema intenta una extracción básica de texto. Si no puede extraerse texto legible, el pipeline lo informa mediante warnings.
+Si una guia de destino no dispone todavia de una estrategia especial, el sistema intenta primero el scraping generico. Si la guia esta en PDF, el sistema intenta una extraccion basica de texto. Si no puede extraerse texto legible, el pipeline lo informa mediante warnings.
 
 ## Resultados guardados
 
-En cada ejecución con comparaciones destino, la herramienta guarda:
+En cada ejecucion con comparaciones destino, la herramienta guarda:
 
-- `resultados/logs_pipeline.txt`: traza técnica del pipeline
+- `resultados/logs_pipeline.txt`: traza tecnica del pipeline
 - `resultados/resultados_comparacion.json`: resultado completo estructurado
-- `resultados/resultados_comparacion.csv`: resumen tabular para análisis y memoria
+- `resultados/resultados_comparacion.csv`: resumen tabular para analisis y memoria
 
-## Módulos principales de `src/`
+La V2 guarda ademas metadatos tecnicos del calculo semantico, como:
 
-- `scraper.py`: descarga HTML y aplica estrategias específicas por tipo de fuente cuando es necesario
+- similitud semantica de contenidos
+- modelo semantico utilizado
+- backend de embeddings
+- estrategia de segmentacion
+- numero de fragmentos de origen y destino
+
+## Modulos principales de `src/`
+
+- `scraper.py`: descarga HTML y aplica estrategias especificas por tipo de fuente cuando es necesario
 - `input_sources.py`: gestiona la entrada interactiva de origen Uniovi y destino por URL, texto manual o PDF local
-- `extractor.py`: realiza una extracción básica de nombre, ECTS y contenidos
-- `text_processing.py`: incluye una normalización inicial del texto
-- `similarity.py`: reserva el espacio para la futura lógica de similitud
-  Actualmente calcula similitud TF-IDF por contenidos, similitud auxiliar de nombre, señal auxiliar de ECTS y afinidad interpretativa.
-- `decision.py`: reserva el espacio para la futura lógica de decisión
-- `pipeline.py`: coordina el flujo de descarga, extracción y salida por consola
-- `utils.py`: reúne utilidades auxiliares
+- `extractor.py`: realiza una extraccion basica de nombre, ECTS y contenidos
+- `text_processing.py`: incluye una normalizacion inicial del texto
+- `semantic_similarity.py`: genera embeddings, segmenta contenidos y calcula la similitud semantica principal de la V2
+- `similarity.py`: coordina la comparacion semantica principal, la senal ECTS y la afinidad interpretativa
+- `decision.py`: reserva el espacio para la futura logica de decision
+- `pipeline.py`: coordina el flujo de descarga, extraccion y salida por consola
+- `utils.py`: reune utilidades auxiliares
 - `dev_logger.py`: documenta cada paso del pipeline con mensajes reutilizables para la memoria del TFG

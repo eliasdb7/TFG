@@ -10,6 +10,7 @@ import requests
 
 from src.dev_logger import log_step, reset_log
 from src.extractor import extract_basic_info
+from src.semantic_similarity import SemanticSimilarityError
 from src.scraper import UnsupportedGuideFormatError, build_pdf_html_from_file, fetch_page
 from src.similarity import compute_subject_similarity
 from src.text_processing import clean_text
@@ -58,9 +59,12 @@ def display_comparison_result(
     print(f"Destino: {subject_target.get('nombre')}")
     print(f"ECTS origen: {subject_origin.get('ects')}")
     print(f"ECTS destino: {subject_target.get('ects')}")
-    print(f"Similitud nombre: {similarity_result['similitud_nombre'] * 100:.1f}%")
-    print(f"Similitud contenidos: {similarity_result['similitud_contenidos'] * 100:.1f}%")
-    print(f"Similitud total (basada en contenidos): {similarity_result['similitud_total'] * 100:.1f}%")
+    print(f"Similitud semantica de contenidos: {similarity_result['similitud_contenidos'] * 100:.1f}%")
+    print(f"Modelo semántico: {similarity_result['modelo_semantico']}")
+    print(
+        f"Fragmentos semánticos origen/destino: "
+        f"{similarity_result['fragmentos_origen']} / {similarity_result['fragmentos_destino']}"
+    )
     print(f"Compatibilidad ECTS: {similarity_result['compatibilidad_ects']}")
     print(f"Afinidad interpretada: {similarity_result['afinidad_interpretada']}")
     print("=" * 50)
@@ -102,9 +106,12 @@ def save_comparison_results(
                 "destino_nombre": subject_target.get("nombre"),
                 "destino_ects": subject_target.get("ects"),
                 "estrategia_destino": subject_target.get("estrategia_scraping"),
-                "similitud_nombre": similarity.get("similitud_nombre"),
                 "similitud_contenidos": similarity.get("similitud_contenidos"),
-                "similitud_total": similarity.get("similitud_total"),
+                "modelo_semantico": similarity.get("modelo_semantico"),
+                "backend_semantico": similarity.get("backend_semantico"),
+                "estrategia_segmentacion": similarity.get("estrategia_segmentacion"),
+                "fragmentos_origen": similarity.get("fragmentos_origen"),
+                "fragmentos_destino": similarity.get("fragmentos_destino"),
                 "diferencia_ects": similarity.get("diferencia_ects"),
                 "compatibilidad_ects": similarity.get("compatibilidad_ects"),
                 "afinidad_interpretada": similarity.get("afinidad_interpretada"),
@@ -125,9 +132,12 @@ def save_comparison_results(
                 "destino_nombre",
                 "destino_ects",
                 "estrategia_destino",
-                "similitud_nombre",
                 "similitud_contenidos",
-                "similitud_total",
+                "modelo_semantico",
+                "backend_semantico",
+                "estrategia_segmentacion",
+                "fragmentos_origen",
+                "fragmentos_destino",
                 "diferencia_ects",
                 "compatibilidad_ects",
                 "afinidad_interpretada",
@@ -403,7 +413,7 @@ def process_target_request(
 
 
 def run_pipeline(url_origen: str, target_requests: list[dict[str, object]]) -> None:
-    """Ejecuta el flujo base de la V1 para una asignatura origen y una o varias destino.
+    """Ejecuta el flujo base de la V2 para una asignatura origen y una o varias destino.
 
     Args:
         url_origen: URL de la asignatura de origen.
@@ -433,28 +443,36 @@ def run_pipeline(url_origen: str, target_requests: list[dict[str, object]]) -> N
     for index, subject_target in enumerate(subject_targets, start=1):
         log_step(
             "Limpieza de texto",
-            "Se normalizan los textos de nombre y contenidos para reducir ruido antes de calcular la similitud textual.",
+            "Se normalizan los contenidos extraidos de origen y destino para reducir ruido antes de la comparacion semantica.",
         )
         log_step(
-            "Cálculo de similitud de nombre",
-            "Se compara el nombre de la asignatura origen con el nombre de la asignatura destino mediante representación TF-IDF y similitud coseno.",
+            "Segmentación semántica",
+            "Los contenidos de origen y destino se dividen en fragmentos manejables para construir una representación semántica más robusta ante diferencias de redacción.",
         )
         log_step(
-            "Cálculo de similitud de contenidos",
-            "Se comparan los contenidos de ambas asignaturas mediante representación TF-IDF y similitud coseno.",
+            "Generación de embeddings",
+            "Cada fragmento de contenido se transforma en un embedding semántico multilingüe para comparar asignaturas más allá de la coincidencia literal de palabras.",
         )
-        similarity_result = compute_subject_similarity(subject_origin, subject_target)
         log_step(
-            "Cálculo de similitud total",
-            "La puntuación principal de similitud se toma directamente de la comparación de contenidos, manteniendo nombre y ECTS como señales auxiliares.",
+            "Cálculo de similitud semántica",
+            "La puntuación principal de la V2 se obtiene comparando los embeddings de origen y destino en un espacio semántico mediante similitud coseno.",
         )
         log_step(
             "Análisis auxiliar de ECTS",
-            "Se calcula una señal complementaria basada en la diferencia de créditos ECTS, sin incorporarla todavía al valor numérico final de similitud.",
+            "Se mantiene una señal complementaria basada en la diferencia de créditos ECTS, sin incorporarla al valor numérico principal de similitud.",
         )
+        try:
+            similarity_result = compute_subject_similarity(subject_origin, subject_target)
+        except SemanticSimilarityError as exc:
+            log_step(
+                "Error de similitud semántica",
+                "No se ha podido completar la comparación semántica porque el modelo de embeddings no está disponible o no ha podido cargarse correctamente.",
+            )
+            print(f"No se ha podido calcular la similitud semántica: {exc}\n")
+            return
         log_step(
             "Interpretación de afinidad",
-            "Se transforma la puntuación numérica en una salida interpretativa inicial de afinidad entre asignaturas.",
+            "Se transforma la puntuación semántica principal en una salida interpretativa inicial de afinidad entre asignaturas.",
         )
         display_comparison_result(index, subject_origin, subject_target, similarity_result)
         comparisons.append(
@@ -472,6 +490,6 @@ def run_pipeline(url_origen: str, target_requests: list[dict[str, object]]) -> N
 
     log_step(
         "Decisión final",
-        "La clasificación final de convalidación todavía no se aplica en esta versión, ya que en esta fase solo se calcula una similitud inicial.",
+        "La clasificación final de convalidación todavía no se aplica en esta versión, ya que esta fase se centra en mejorar la comparación semántica de contenidos.",
     )
     # print("Pipeline base finalizado.")

@@ -1,4 +1,4 @@
-"""Helpers para recoger por consola las distintas entradas de la V1."""
+"""Helpers para recoger por consola las distintas entradas de la V2."""
 
 from __future__ import annotations
 

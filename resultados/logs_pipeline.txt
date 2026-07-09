@@ -35,23 +35,23 @@ Descripción: Se intenta localizar una sección de contenidos o temario a partir
 Descripción: Se aplica una estrategia específica del portal si existe; en caso contrario, se utiliza el scraping HTML genérico como mecanismo base.
 
 [STEP] Limpieza de texto
-Descripción: Se normalizan los textos de nombre y contenidos para reducir ruido antes de calcular la similitud textual.
+Descripción: Se normalizan los contenidos extraidos de origen y destino para reducir ruido antes de la comparacion semantica.
 
-[STEP] Cálculo de similitud de nombre
-Descripción: Se compara el nombre de la asignatura origen con el nombre de la asignatura destino mediante representación TF-IDF y similitud coseno.
+[STEP] Segmentación semántica
+Descripción: Los contenidos de origen y destino se dividen en fragmentos manejables para construir una representación semántica más robusta ante diferencias de redacción.
 
-[STEP] Cálculo de similitud de contenidos
-Descripción: Se comparan los contenidos de ambas asignaturas mediante representación TF-IDF y similitud coseno.
+[STEP] Generación de embeddings
+Descripción: Cada fragmento de contenido se transforma en un embedding semántico multilingüe para comparar asignaturas más allá de la coincidencia literal de palabras.
 
-[STEP] Cálculo de similitud total
-Descripción: La puntuación principal de similitud se toma directamente de la comparación de contenidos, manteniendo nombre y ECTS como señales auxiliares.
+[STEP] Cálculo de similitud semántica
+Descripción: La puntuación principal de la V2 se obtiene comparando los embeddings de origen y destino en un espacio semántico mediante similitud coseno.
 
 [STEP] Análisis auxiliar de ECTS
-Descripción: Se calcula una señal complementaria basada en la diferencia de créditos ECTS, sin incorporarla todavía al valor numérico final de similitud.
+Descripción: Se mantiene una señal complementaria basada en la diferencia de créditos ECTS, sin incorporarla al valor numérico principal de similitud.
 
 [STEP] Interpretación de afinidad
-Descripción: Se transforma la puntuación numérica en una salida interpretativa inicial de afinidad entre asignaturas.
+Descripción: Se transforma la puntuación semántica principal en una salida interpretativa inicial de afinidad entre asignaturas.
 
 [STEP] Decisión final
-Descripción: La clasificación final de convalidación todavía no se aplica en esta versión, ya que en esta fase solo se calcula una similitud inicial.
+Descripción: La clasificación final de convalidación todavía no se aplica en esta versión, ya que esta fase se centra en mejorar la comparación semántica de contenidos.
 

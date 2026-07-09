@@ -1,4 +1,4 @@
-"""Punto de entrada principal para la V1 del proyecto."""
+"""Punto de entrada principal para la V2 del proyecto."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ from src.pipeline import run_pipeline
 
 
 def main() -> None:
-    """Ejecuta la V1 del pipeline con origen Uniovi y un destino configurable."""
-    print("Herramienta V1 de apoyo a convalidaciones SICUE")
+    """Ejecuta la V2 del pipeline con origen Uniovi y un destino configurable."""
+    print("Herramienta V2 de apoyo a convalidaciones SICUE")
 
     url_origen = prompt_origin_uniovi_url()
     destino = prompt_target_request()
@@ -18,7 +18,7 @@ def main() -> None:
     print(f"- Modo de entrada destino: {destino.get('input_mode')}")
     print(f"- Referencia destino: {destino.get('source_reference')}")
 
-    print("\nEjecutando comparación inicial del pipeline.\n")
+    print("\nEjecutando comparación semántica del pipeline.\n")
     run_pipeline(url_origen, [destino])
 
 
