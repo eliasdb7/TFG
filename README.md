@@ -38,6 +38,7 @@ La herramienta calcula:
 - una similitud semantica de contenidos mediante embeddings multilingues
 - una senal auxiliar de compatibilidad ECTS
 - una afinidad interpretada derivada de la similitud semantica y del contexto ECTS
+- una capa de explicabilidad basada en los fragmentos origen/destino mas cercanos
 
 La puntuacion principal de la V2 es:
 
@@ -92,6 +93,7 @@ La V2 guarda ademas metadatos tecnicos del calculo semantico, como:
 - backend de embeddings
 - estrategia de segmentacion
 - numero de fragmentos de origen y destino
+- pares de fragmentos mas parecidos para justificar el resultado
 
 ## Modulos principales de `src/`
 

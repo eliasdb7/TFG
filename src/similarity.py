@@ -64,7 +64,7 @@ def interpret_affinity(
 def compute_subject_similarity(
     subject_a: dict[str, object],
     subject_b: dict[str, object],
-) -> dict[str, float | str | bool | None]:
+) -> dict[str, object]:
     """Calcula la similitud entre dos asignaturas con V2 semantica."""
     contenidos_a = str(subject_a.get("contenidos") or "")
     contenidos_b = str(subject_b.get("contenidos") or "")
@@ -77,6 +77,16 @@ def compute_subject_similarity(
         subject_b.get("ects") if isinstance(subject_b.get("ects"), (int, float)) else None,
     )
     afinidad_interpretada = interpret_affinity(similitud_contenidos, ects_signal)
+    fragmentos_mas_parecidos = [
+        {
+            "indice_origen": match.origin_index,
+            "indice_destino": match.target_index,
+            "score": match.score,
+            "texto_origen": match.origin_text,
+            "texto_destino": match.target_text,
+        }
+        for match in semantic_result.top_matches
+    ]
 
     return {
         "similitud_contenidos": similitud_contenidos,
@@ -87,6 +97,7 @@ def compute_subject_similarity(
         "fragmentos_destino": semantic_result.target_chunk_count,
         "media_maximos_origen": semantic_result.origin_best_match_mean,
         "media_maximos_destino": semantic_result.target_best_match_mean,
+        "fragmentos_mas_parecidos": fragmentos_mas_parecidos,
         "diferencia_ects": ects_signal["diferencia_ects"],
         "compatibilidad_ects": ects_signal["compatibilidad_ects"],
         "ects_compatibles": ects_signal["ects_compatibles"],

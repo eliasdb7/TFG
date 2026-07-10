@@ -50,7 +50,7 @@ def display_comparison_result(
     index: int,
     subject_origin: dict[str, object],
     subject_target: dict[str, object],
-    similarity_result: dict[str, float | str | bool | None],
+    similarity_result: dict[str, object],
 ) -> None:
     """Muestra por consola el resultado de una comparación."""
     print("=" * 50)
@@ -67,6 +67,18 @@ def display_comparison_result(
     )
     print(f"Compatibilidad ECTS: {similarity_result['compatibilidad_ects']}")
     print(f"Afinidad interpretada: {similarity_result['afinidad_interpretada']}")
+    top_matches = similarity_result.get("fragmentos_mas_parecidos", [])
+    if isinstance(top_matches, list) and top_matches:
+        print("Fragmentos mas parecidos:")
+        for match_index, match in enumerate(top_matches[:3], start=1):
+            if not isinstance(match, dict):
+                continue
+            score = float(match.get("score") or 0.0)
+            origin_text = truncate_text(str(match.get("texto_origen") or ""), 160)
+            target_text = truncate_text(str(match.get("texto_destino") or ""), 160)
+            print(f"  {match_index}. Coincidencia: {score * 100:.1f}%")
+            print(f"     - Origen: {origin_text}")
+            print(f"     - Destino: {target_text}")
     print("=" * 50)
     print()
 
@@ -74,6 +86,25 @@ def display_comparison_result(
 def ensure_results_directory() -> None:
     """Garantiza la existencia del directorio de resultados."""
     Path("resultados").mkdir(parents=True, exist_ok=True)
+
+
+def build_explainability_summary(matches: object, *, limit: int = 3) -> str:
+    """Construye un resumen corto de los fragmentos mas parecidos para CSV."""
+    if not isinstance(matches, list):
+        return ""
+
+    parts: list[str] = []
+    for match in matches[:limit]:
+        if not isinstance(match, dict):
+            continue
+        score = float(match.get("score") or 0.0)
+        origin_text = truncate_text(str(match.get("texto_origen") or ""), 60)
+        target_text = truncate_text(str(match.get("texto_destino") or ""), 60)
+        parts.append(
+            f"{score * 100:.1f}% | O: {origin_text} | D: {target_text}"
+        )
+
+    return " || ".join(parts)
 
 
 def save_comparison_results(
@@ -112,6 +143,9 @@ def save_comparison_results(
                 "estrategia_segmentacion": similarity.get("estrategia_segmentacion"),
                 "fragmentos_origen": similarity.get("fragmentos_origen"),
                 "fragmentos_destino": similarity.get("fragmentos_destino"),
+                "explicabilidad_resumen": build_explainability_summary(
+                    similarity.get("fragmentos_mas_parecidos")
+                ),
                 "diferencia_ects": similarity.get("diferencia_ects"),
                 "compatibilidad_ects": similarity.get("compatibilidad_ects"),
                 "afinidad_interpretada": similarity.get("afinidad_interpretada"),
@@ -138,6 +172,7 @@ def save_comparison_results(
                 "estrategia_segmentacion",
                 "fragmentos_origen",
                 "fragmentos_destino",
+                "explicabilidad_resumen",
                 "diferencia_ects",
                 "compatibilidad_ects",
                 "afinidad_interpretada",
@@ -456,6 +491,10 @@ def run_pipeline(url_origen: str, target_requests: list[dict[str, object]]) -> N
         log_step(
             "Cálculo de similitud semántica",
             "La puntuación principal de la V2 se obtiene comparando los embeddings de origen y destino en un espacio semántico mediante similitud coseno.",
+        )
+        log_step(
+            "Explicabilidad del resultado",
+            "Se recuperan los fragmentos de origen y destino con mayor cercania semantica para justificar el porcentaje obtenido y facilitar la interpretacion del resultado.",
         )
         log_step(
             "Análisis auxiliar de ECTS",

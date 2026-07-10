@@ -26,6 +26,17 @@ class SemanticSimilarityError(RuntimeError):
 
 
 @dataclass(frozen=True)
+class SemanticChunkMatch:
+    """Representa un emparejamiento semantico entre dos fragmentos."""
+
+    origin_index: int
+    target_index: int
+    score: float
+    origin_text: str
+    target_text: str
+
+
+@dataclass(frozen=True)
 class SemanticSimilarityResult:
     """Contiene el resultado del calculo de similitud semantica."""
 
@@ -38,6 +49,7 @@ class SemanticSimilarityResult:
     target_chunk_count: int
     origin_best_match_mean: float
     target_best_match_mean: float
+    top_matches: list[SemanticChunkMatch]
 
 
 def split_text_into_semantic_chunks(
@@ -218,6 +230,71 @@ def build_document_embedding(chunk_embeddings: np.ndarray) -> np.ndarray:
     return (document_embedding / norm).astype(np.float32)
 
 
+def build_top_semantic_matches(
+    origin_chunks: list[str],
+    target_chunks: list[str],
+    similarity_matrix: np.ndarray,
+    *,
+    limit: int = 3,
+) -> list[SemanticChunkMatch]:
+    """Selecciona los pares de fragmentos mas representativos de la comparacion."""
+    if similarity_matrix.size == 0 or limit <= 0:
+        return []
+
+    candidates: list[tuple[float, int, int]] = []
+    for origin_index in range(similarity_matrix.shape[0]):
+        for target_index in range(similarity_matrix.shape[1]):
+            score = float(similarity_matrix[origin_index, target_index])
+            candidates.append((score, origin_index, target_index))
+
+    candidates.sort(key=lambda item: item[0], reverse=True)
+
+    selected: list[SemanticChunkMatch] = []
+    used_origin: set[int] = set()
+    used_target: set[int] = set()
+
+    for score, origin_index, target_index in candidates:
+        if origin_index in used_origin or target_index in used_target:
+            continue
+        selected.append(
+            SemanticChunkMatch(
+                origin_index=origin_index,
+                target_index=target_index,
+                score=score,
+                origin_text=origin_chunks[origin_index],
+                target_text=target_chunks[target_index],
+            )
+        )
+        used_origin.add(origin_index)
+        used_target.add(target_index)
+        if len(selected) >= min(limit, len(origin_chunks), len(target_chunks)):
+            break
+
+    if len(selected) < limit:
+        selected_pairs = {
+            (match.origin_index, match.target_index)
+            for match in selected
+        }
+        for score, origin_index, target_index in candidates:
+            pair = (origin_index, target_index)
+            if pair in selected_pairs:
+                continue
+            selected.append(
+                SemanticChunkMatch(
+                    origin_index=origin_index,
+                    target_index=target_index,
+                    score=score,
+                    origin_text=origin_chunks[origin_index],
+                    target_text=target_chunks[target_index],
+                )
+            )
+            selected_pairs.add(pair)
+            if len(selected) >= limit:
+                break
+
+    return selected
+
+
 def compute_semantic_text_similarity(
     text_a: str,
     text_b: str,
@@ -239,6 +316,7 @@ def compute_semantic_text_similarity(
             target_chunk_count=len(target_chunks),
             origin_best_match_mean=0.0,
             target_best_match_mean=0.0,
+            top_matches=[],
         )
 
     origin_embeddings = encode_semantic_chunks(origin_chunks, model_name=model_name)
@@ -272,4 +350,9 @@ def compute_semantic_text_similarity(
         target_chunk_count=len(target_chunks),
         origin_best_match_mean=origin_best_match_mean,
         target_best_match_mean=target_best_match_mean,
+        top_matches=build_top_semantic_matches(
+            origin_chunks,
+            target_chunks,
+            similarity_matrix,
+        ),
     )

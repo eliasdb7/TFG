@@ -46,6 +46,9 @@ Descripción: Cada fragmento de contenido se transforma en un embedding semánti
 [STEP] Cálculo de similitud semántica
 Descripción: La puntuación principal de la V2 se obtiene comparando los embeddings de origen y destino en un espacio semántico mediante similitud coseno.
 
+[STEP] Explicabilidad del resultado
+Descripción: Se recuperan los fragmentos de origen y destino con mayor cercania semantica para justificar el porcentaje obtenido y facilitar la interpretacion del resultado.
+
 [STEP] Análisis auxiliar de ECTS
 Descripción: Se mantiene una señal complementaria basada en la diferencia de créditos ECTS, sin incorporarla al valor numérico principal de similitud.
 
