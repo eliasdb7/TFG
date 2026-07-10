@@ -81,5 +81,6 @@ checkpoints/
 .cache/
 tmp_comments_*.json
 tmp_preserve_comments_*.json
+tmp
 
 Iteraciones.md
