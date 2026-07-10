@@ -131,3 +131,32 @@ def prompt_target_request() -> dict[str, object]:
     if selected_mode == "2":
         return prompt_target_manual_text_request()
     return prompt_target_local_pdf_request()
+
+
+def prompt_yes_no(message: str) -> bool:
+    """Solicita una respuesta binaria sencilla por consola."""
+    while True:
+        response = input(message).strip().casefold()
+        if response in {"s", "si", "sí"}:
+            return True
+        if response in {"n", "no"}:
+            return False
+        print("Respuesta no valida. Introduce s o n.")
+
+
+def prompt_target_requests() -> list[dict[str, object]]:
+    """Solicita una o varias asignaturas destino en los modos soportados."""
+    target_requests: list[dict[str, object]] = []
+    target_index = 1
+
+    while True:
+        print(f"\nConfigurando asignatura destino {target_index}:")
+        target_requests.append(prompt_target_request())
+        should_continue = prompt_yes_no(
+            "¿Quieres añadir otra asignatura destino? [s/n]: "
+        )
+        if not should_continue:
+            break
+        target_index += 1
+
+    return target_requests

@@ -83,6 +83,29 @@ def display_comparison_result(
     print()
 
 
+def display_ranking_summary(comparisons: list[dict[str, object]]) -> None:
+    """Muestra un ranking final cuando hay varias asignaturas destino."""
+    if len(comparisons) <= 1:
+        return
+
+    print("=" * 50)
+    print("Ranking final de afinidad")
+    for comparison in comparisons:
+        ranking_position = comparison.get("ranking_posicion")
+        subject_target = comparison.get("asignatura_destino", {})
+        similarity = comparison.get("similitud", {})
+        if not isinstance(subject_target, dict) or not isinstance(similarity, dict):
+            continue
+        print(
+            f"{ranking_position}. "
+            f"{subject_target.get('nombre')} | "
+            f"{float(similarity.get('similitud_contenidos') or 0.0) * 100:.1f}% | "
+            f"{similarity.get('afinidad_interpretada')}"
+        )
+    print("=" * 50)
+    print()
+
+
 def ensure_results_directory() -> None:
     """Garantiza la existencia del directorio de resultados."""
     Path("resultados").mkdir(parents=True, exist_ok=True)
@@ -127,6 +150,7 @@ def save_comparison_results(
         similarity = comparison["similitud"]
         csv_rows.append(
             {
+                "ranking_posicion": comparison.get("ranking_posicion"),
                 "origen_url": subject_origin.get("url"),
                 "origen_modo_entrada": subject_origin.get("modo_entrada"),
                 "origen_nombre": subject_origin.get("nombre"),
@@ -156,6 +180,7 @@ def save_comparison_results(
         writer = csv.DictWriter(
             csv_file,
             fieldnames=[
+                "ranking_posicion",
                 "origen_url",
                 "origen_modo_entrada",
                 "origen_nombre",
@@ -180,6 +205,27 @@ def save_comparison_results(
         )
         writer.writeheader()
         writer.writerows(csv_rows)
+
+
+def rank_comparisons(comparisons: list[dict[str, object]]) -> list[dict[str, object]]:
+    """Ordena las comparaciones de mayor a menor similitud semantica."""
+    ranked = sorted(
+        comparisons,
+        key=lambda comparison: float(
+            (
+                comparison.get("similitud", {})
+                if isinstance(comparison.get("similitud"), dict)
+                else {}
+            ).get("similitud_contenidos")
+            or 0.0
+        ),
+        reverse=True,
+    )
+
+    for ranking_position, comparison in enumerate(ranked, start=1):
+        comparison["ranking_posicion"] = ranking_position
+
+    return ranked
 
 
 def log_fallback_usage(info: dict[str, object]) -> None:
@@ -516,13 +562,15 @@ def run_pipeline(url_origen: str, target_requests: list[dict[str, object]]) -> N
         display_comparison_result(index, subject_origin, subject_target, similarity_result)
         comparisons.append(
             {
-                "indice": index,
+                "indice_entrada": index,
                 "asignatura_destino": subject_target,
                 "similitud": similarity_result,
             }
         )
 
     if comparisons:
+        comparisons = rank_comparisons(comparisons)
+        display_ranking_summary(comparisons)
         save_comparison_results(subject_origin, comparisons)
         print(f"Resultados guardados en: {RESULTS_JSON_PATH}")
         print(f"Resumen tabular guardado en: {RESULTS_CSV_PATH}\n")

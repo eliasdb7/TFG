@@ -34,6 +34,84 @@ Descripción: Se intenta localizar una sección de contenidos o temario a partir
 [STEP] Selección de estrategia
 Descripción: Se aplica una estrategia específica del portal si existe; en caso contrario, se utiliza el scraping HTML genérico como mecanismo base.
 
+[STEP] Descarga HTML
+Descripción: Se realiza una petición HTTP a la URL seleccionada para obtener el contenido HTML de la guía docente.
+
+[STEP] Inicio de extracción
+Descripción: Se inicia el análisis estructural del HTML para localizar la información académica principal de la asignatura.
+
+[STEP] Extracción de nombre
+Descripción: Se busca el nombre de la asignatura priorizando encabezados principales y, en segundo término, el título de la página y sus metadatos.
+
+[STEP] Extracción de créditos
+Descripción: Se buscan referencias explícitas a créditos ECTS mediante patrones textuales frecuentes en guías docentes universitarias.
+
+[STEP] Extracción de contenidos
+Descripción: Se intenta localizar una sección de contenidos o temario a partir de encabezados y etiquetas resaltadas dentro del documento HTML.
+
+[STEP] Selección de estrategia
+Descripción: Se aplica una estrategia específica del portal si existe; en caso contrario, se utiliza el scraping HTML genérico como mecanismo base.
+
+[STEP] Descarga HTML
+Descripción: Se realiza una petición HTTP a la URL seleccionada para obtener el contenido HTML de la guía docente.
+
+[STEP] Inicio de extracción
+Descripción: Se inicia el análisis estructural del HTML para localizar la información académica principal de la asignatura.
+
+[STEP] Extracción de nombre
+Descripción: Se busca el nombre de la asignatura priorizando encabezados principales y, en segundo término, el título de la página y sus metadatos.
+
+[STEP] Extracción de créditos
+Descripción: Se buscan referencias explícitas a créditos ECTS mediante patrones textuales frecuentes en guías docentes universitarias.
+
+[STEP] Extracción de contenidos
+Descripción: Se intenta localizar una sección de contenidos o temario a partir de encabezados y etiquetas resaltadas dentro del documento HTML.
+
+[STEP] Selección de estrategia
+Descripción: Se aplica una estrategia específica del portal si existe; en caso contrario, se utiliza el scraping HTML genérico como mecanismo base.
+
+[STEP] Limpieza de texto
+Descripción: Se normalizan los contenidos extraidos de origen y destino para reducir ruido antes de la comparacion semantica.
+
+[STEP] Segmentación semántica
+Descripción: Los contenidos de origen y destino se dividen en fragmentos manejables para construir una representación semántica más robusta ante diferencias de redacción.
+
+[STEP] Generación de embeddings
+Descripción: Cada fragmento de contenido se transforma en un embedding semántico multilingüe para comparar asignaturas más allá de la coincidencia literal de palabras.
+
+[STEP] Cálculo de similitud semántica
+Descripción: La puntuación principal de la V2 se obtiene comparando los embeddings de origen y destino en un espacio semántico mediante similitud coseno.
+
+[STEP] Explicabilidad del resultado
+Descripción: Se recuperan los fragmentos de origen y destino con mayor cercania semantica para justificar el porcentaje obtenido y facilitar la interpretacion del resultado.
+
+[STEP] Análisis auxiliar de ECTS
+Descripción: Se mantiene una señal complementaria basada en la diferencia de créditos ECTS, sin incorporarla al valor numérico principal de similitud.
+
+[STEP] Interpretación de afinidad
+Descripción: Se transforma la puntuación semántica principal en una salida interpretativa inicial de afinidad entre asignaturas.
+
+[STEP] Limpieza de texto
+Descripción: Se normalizan los contenidos extraidos de origen y destino para reducir ruido antes de la comparacion semantica.
+
+[STEP] Segmentación semántica
+Descripción: Los contenidos de origen y destino se dividen en fragmentos manejables para construir una representación semántica más robusta ante diferencias de redacción.
+
+[STEP] Generación de embeddings
+Descripción: Cada fragmento de contenido se transforma en un embedding semántico multilingüe para comparar asignaturas más allá de la coincidencia literal de palabras.
+
+[STEP] Cálculo de similitud semántica
+Descripción: La puntuación principal de la V2 se obtiene comparando los embeddings de origen y destino en un espacio semántico mediante similitud coseno.
+
+[STEP] Explicabilidad del resultado
+Descripción: Se recuperan los fragmentos de origen y destino con mayor cercania semantica para justificar el porcentaje obtenido y facilitar la interpretacion del resultado.
+
+[STEP] Análisis auxiliar de ECTS
+Descripción: Se mantiene una señal complementaria basada en la diferencia de créditos ECTS, sin incorporarla al valor numérico principal de similitud.
+
+[STEP] Interpretación de afinidad
+Descripción: Se transforma la puntuación semántica principal en una salida interpretativa inicial de afinidad entre asignaturas.
+
 [STEP] Limpieza de texto
 Descripción: Se normalizan los contenidos extraidos de origen y destino para reducir ruido antes de la comparacion semantica.
 

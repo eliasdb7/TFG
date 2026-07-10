@@ -24,7 +24,8 @@ Trabajo Fin de Grado orientado al desarrollo de una herramienta de apoyo a conva
 La version actual asume que:
 
 - la asignatura de origen se introduce siempre mediante una guia docente de Uniovi
-- la asignatura de destino puede introducirse de tres formas:
+- las asignaturas de destino pueden introducirse una a una en numero variable
+- cada asignatura destino puede introducirse de tres formas:
   - URL de guia docente
   - contenidos pegados manualmente por consola
   - PDF local de la guia docente
@@ -39,6 +40,7 @@ La herramienta calcula:
 - una senal auxiliar de compatibilidad ECTS
 - una afinidad interpretada derivada de la similitud semantica y del contexto ECTS
 - una capa de explicabilidad basada en los fragmentos origen/destino mas cercanos
+- un ranking final cuando se comparan varias asignaturas destino
 
 La puntuacion principal de la V2 es:
 
@@ -94,6 +96,7 @@ La V2 guarda ademas metadatos tecnicos del calculo semantico, como:
 - estrategia de segmentacion
 - numero de fragmentos de origen y destino
 - pares de fragmentos mas parecidos para justificar el resultado
+- posicion en el ranking final de destinos comparados
 
 ## Modulos principales de `src/`
 
