@@ -46,6 +46,12 @@ La puntuacion principal de la V2 es:
 
 - `100%` similitud semantica de contenidos
 
+En esta version ya no se utiliza:
+
+- similitud del nombre de la asignatura
+- similitud lexica TF-IDF como parte del resultado principal
+- una "similitud total" separada de la semantica
+
 Los ECTS no alteran el valor numerico principal, pero si ayudan a contextualizar el resultado final.
 
 ## Motor semantico de la V2
@@ -58,8 +64,17 @@ La estrategia general es:
 - segmentarlo en fragmentos manejables
 - generar embeddings para cada fragmento
 - comparar origen y destino mediante similitud coseno en el espacio semantico
+- agregar los mejores emparejamientos de forma bidireccional mediante una media recortada inferior
 
 Esto permite detectar afinidad entre asignaturas aunque los contenidos no coincidan literalmente en el vocabulario utilizado.
+
+La interpretacion actual del porcentaje semantico sigue estos umbrales:
+
+- `>= 62%`: afinidad alta
+- `>= 47%` y `< 62%`: afinidad media
+- `< 47%`: afinidad baja
+
+La salida tambien conserva una capa de explicabilidad con los fragmentos origen/destino mas cercanos que sostienen el resultado.
 
 ## Estrategia de scraping
 
@@ -97,6 +112,13 @@ La V2 guarda ademas metadatos tecnicos del calculo semantico, como:
 - numero de fragmentos de origen y destino
 - pares de fragmentos mas parecidos para justificar el resultado
 - posicion en el ranking final de destinos comparados
+- modo de entrada utilizado para cada destino
+- referencia original usada para cada comparacion
+
+Ademas, el trabajo incluye artefactos de validacion y analisis en:
+
+- `resultados/validacion_v01/`
+- `resultados/validacion_v02/`
 
 ## Modulos principales de `src/`
 
