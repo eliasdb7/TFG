@@ -1,112 +1,169 @@
-# TFG - Convalidaciones SICUE con NLP
+# TFG - Herramienta de apoyo a convalidaciones SICUE
 
-Este `README.md` describe el estado de la rama `version_02`.
+Este repositorio contiene el desarrollo del Trabajo Fin de Grado orientado a comparar asignaturas universitarias a partir de sus guias docentes para apoyar procesos de movilidad SICUE.
 
-Trabajo Fin de Grado orientado al desarrollo de una herramienta de apoyo a convalidaciones SICUE entre universidades espanolas mediante comparacion automatica de guias docentes.
+El estado actual de `master` corresponde a la version final implementada en el proyecto:
 
-## Estructura
-- `src/`: codigo fuente
-- `docs/`: notas, diseno y documentacion
-- `figuras/`: figuras para la memoria
-- `resultados/`: salidas generadas
-- `Archivos/`: materiales de apoyo no versionados
-- `data/`: datos de trabajo no versionados
+- origen siempre introducido mediante guia docente de la Universidad de Oviedo
+- uno o varios destinos introducidos por URL, texto manual o PDF local
+- scraping y extraccion documental
+- comparacion semantica de contenidos
+- explicabilidad basada en fragmentos proximos
+- ranking final de varias asignaturas destino
 
-## Ejecucion inicial
+## Objetivo del proyecto
 
-1. Instalar dependencias:
-   `pip install -r requirements.txt`
-2. Ejecutar la version base:
-   `python main.py`
+La herramienta busca reducir el esfuerzo preliminar de analisis cuando un estudiante necesita valorar la afinidad entre una asignatura de origen y una o varias asignaturas de destino. El sistema no toma decisiones de convalidacion, sino que ofrece una ayuda tecnica para priorizar comparaciones y justificar el resultado obtenido.
 
-## Flujo de entrada actual
+## Que hace actualmente
 
-La version actual asume que:
+- recupera la asignatura de origen desde una URL de Uniovi
+- admite destinos por URL de guia docente, texto pegado manualmente o PDF local
+- extrae nombre, contenidos y creditos ECTS cuando estan disponibles
+- representa semanticamente los contenidos con `sentence-transformers`
+- calcula una similitud semantica principal basada al `100%` en contenidos
+- conserva los ECTS como senal auxiliar de contexto
+- muestra fragmentos origen-destino proximos para explicar la afinidad
+- ordena varios destinos por porcentaje de similitud y genera un ranking final
+- exporta resultados en consola, `JSON`, `CSV` y log tecnico
 
-- la asignatura de origen se introduce siempre mediante una guia docente de Uniovi
-- las asignaturas de destino pueden introducirse una a una en numero variable
-- cada asignatura destino puede introducirse de tres formas:
-  - URL de guia docente
-  - contenidos pegados manualmente por consola
-  - PDF local de la guia docente
+## Estructura del repositorio
 
-## Como funciona la similitud en la V2
+- `main.py`: punto de entrada interactivo
+- `src/`: modulos del pipeline
+- `docs/`: memoria, notas tecnicas y registros de desarrollo
+- `figuras/`: material grafico de apoyo
+- `resultados/`: resultados de comparacion y validacion
+- `data/`: conjuntos de apoyo y validacion
+- `models/`: recursos descargados o persistidos localmente por el motor semantico
 
-La version actual mantiene el pipeline de extraccion de la V1, pero sustituye el motor de comparacion por una comparacion semantica de contenidos.
+## Requisitos
 
-La herramienta calcula:
+- Python 3.10 o superior recomendado
+- dependencias de `requirements.txt`
+- conexion a internet para scraping y, en la primera ejecucion semantica, para descargar el modelo si no existe en cache local
 
-- una similitud semantica de contenidos mediante embeddings multilingues
-- una senal auxiliar de compatibilidad ECTS
-- una afinidad interpretada derivada de la similitud semantica y del contexto ECTS
-- una capa de explicabilidad basada en los fragmentos origen/destino mas cercanos
-- un ranking final cuando se comparan varias asignaturas destino
+Dependencias principales:
 
-La puntuacion principal de la V2 es:
+- `requests`
+- `beautifulsoup4`
+- `scikit-learn`
+- `pypdf`
+- `sentence-transformers`
 
-- `100%` similitud semantica de contenidos
+## Instalacion
 
-Los ECTS no alteran el valor numerico principal, pero si ayudan a contextualizar el resultado final.
+```bash
+pip install -r requirements.txt
+```
 
-## Motor semantico de la V2
+## Ejecucion
 
-La V2 utiliza un modelo multilingue de `sentence-transformers` para representar semanticamente los contenidos de las asignaturas.
+```bash
+python main.py
+```
 
-La estrategia general es:
+## Flujo de uso
 
-- limpiar el texto de contenidos
-- segmentarlo en fragmentos manejables
-- generar embeddings para cada fragmento
-- comparar origen y destino mediante similitud coseno en el espacio semantico
+1. Introducir la asignatura de origen mediante una URL de guia docente de Uniovi.
+2. Elegir cuantas asignaturas destino se quieren comparar.
+3. Para cada destino, seleccionar uno de estos modos:
+   - URL de guia docente
+   - texto manual pegado por consola
+   - PDF local
+4. Revisar la salida por consola y los ficheros generados en `resultados/`.
 
-Esto permite detectar afinidad entre asignaturas aunque los contenidos no coincidan literalmente en el vocabulario utilizado.
+## Comparacion semantica
 
-## Estrategia de scraping
+La version actual reutiliza el pipeline documental de la V01, pero sustituye la comparacion lexica principal por una comparacion semantica de contenidos.
 
-La herramienta utiliza una arquitectura de scraping por capas:
+El proceso general es:
 
-- `uniovi_ajax_html`: estrategia especifica para la asignatura de origen en Uniovi
-- `generic_html`: descarga HTML general para guias donde la informacion ya esta presente en la pagina
-- estrategias tecnicas de destino: se activan cuando la guia requiere un tratamiento especial por el formato de publicacion
+1. limpieza basica del texto
+2. segmentacion en fragmentos manejables
+3. generacion de `embeddings` multilingues
+4. calculo de similitud coseno entre fragmentos
+5. agregacion bidireccional mediante una media recortada inferior
+6. interpretacion final del porcentaje y generacion del ranking
 
-Actualmente se incluyen estrategias de destino para patrones como:
+Umbrales interpretativos actuales:
 
-- `snapshot_api_html`: visor con API JSON snapshot
-- `embedded_base64_pdf`: pagina HTML que incrusta un PDF en base64
+- `>= 62%`: afinidad alta
+- `>= 47%` y `< 62%`: afinidad media
+- `< 47%`: afinidad baja
 
-Ademas, el sistema incluye una via basica para PDFs accesibles por URL directa:
+## Estrategias de entrada y scraping
 
-- `remote_pdf`: descarga el PDF, extrae su texto y genera un HTML sintetico para reutilizar el extractor actual
+La arquitectura distingue entre:
 
-Si una guia de destino no dispone todavia de una estrategia especial, el sistema intenta primero el scraping generico. Si la guia esta en PDF, el sistema intenta una extraccion basica de texto. Si no puede extraerse texto legible, el pipeline lo informa mediante warnings.
+- una estrategia especifica para la asignatura de origen en Uniovi: `uniovi_ajax_html`
+- estrategias tecnicas generales para destinos segun el tipo de fuente
 
-## Resultados guardados
+Entre las estrategias de destino actualmente soportadas se encuentran:
 
-En cada ejecucion con comparaciones destino, la herramienta guarda:
+- `generic_html`
+- `snapshot_api_html`
+- `embedded_base64_pdf`
+- `remote_pdf`
+- procesamiento de PDF local suministrado por el usuario
 
-- `resultados/logs_pipeline.txt`: traza tecnica del pipeline
-- `resultados/resultados_comparacion.json`: resultado completo estructurado
-- `resultados/resultados_comparacion.csv`: resumen tabular para analisis y memoria
+## Salidas generadas
 
-La V2 guarda ademas metadatos tecnicos del calculo semantico, como:
+Cada ejecucion puede generar, segun el caso:
 
+- `resultados/logs_pipeline.txt`
+- `resultados/resultados_comparacion.json`
+- `resultados/resultados_comparacion.csv`
+
+La salida incluye, entre otros, estos campos:
+
+- modo de entrada
+- referencia de origen y destino
+- estrategia de scraping utilizada
 - similitud semantica de contenidos
-- modelo semantico utilizado
-- backend de embeddings
-- estrategia de segmentacion
-- numero de fragmentos de origen y destino
-- pares de fragmentos mas parecidos para justificar el resultado
-- posicion en el ranking final de destinos comparados
+- afinidad interpretada
+- compatibilidad ECTS
+- fragmentos mas proximos para explicabilidad
+- posicion en ranking cuando hay varios destinos
 
-## Modulos principales de `src/`
+## Validacion y trazabilidad
 
-- `scraper.py`: descarga HTML y aplica estrategias especificas por tipo de fuente cuando es necesario
-- `input_sources.py`: gestiona la entrada interactiva de origen Uniovi y destino por URL, texto manual o PDF local
-- `extractor.py`: realiza una extraccion basica de nombre, ECTS y contenidos
-- `text_processing.py`: incluye una normalizacion inicial del texto
-- `semantic_similarity.py`: genera embeddings, segmenta contenidos y calcula la similitud semantica principal de la V2
-- `similarity.py`: coordina la comparacion semantica principal, la senal ECTS y la afinidad interpretativa
-- `decision.py`: reserva el espacio para la futura logica de decision
-- `pipeline.py`: coordina el flujo de descarga, extraccion y salida por consola
-- `utils.py`: reune utilidades auxiliares
-- `dev_logger.py`: documenta cada paso del pipeline con mensajes reutilizables para la memoria del TFG
+El repositorio conserva:
+
+- registros tecnicos en `docs/dev_logs/`
+- resultados de validacion en `resultados/`
+- materiales utilizados en la memoria del TFG
+
+Las ramas historicas principales son:
+
+- `version_01`: comparativa lexica y pipeline documental base
+- `version_02`: evolucion semantica del comparador
+- `master`: estado integrado mas reciente del proyecto
+
+## Limitaciones actuales
+
+- la asignatura de origen debe pertenecer a Uniovi
+- la calidad del resultado depende de la calidad de extraccion del apartado de contenidos
+- no todos los portales universitarios publican sus guias con la misma estructura
+- la herramienta apoya la revision academica, pero no sustituye la decision final del profesorado responsable
+
+## Como contribuir
+
+El proyecto nace como desarrollo academico de TFG, pero puede seguir ampliandose. Si se retoma su evolucion, es recomendable:
+
+1. trabajar sobre ramas especificas
+2. documentar los cambios tecnicos en `docs/dev_logs/`
+3. repetir las pruebas manuales y de validacion cuando cambie el comportamiento del pipeline
+4. mantener actualizados `README.md`, resultados y memoria cuando proceda
+
+## Licencia y contacto
+
+Actualmente el repositorio no incorpora un fichero `LICENSE` especifico. Si se desea abrir el proyecto a reutilizacion externa de forma formal, el siguiente paso recomendable es definir una licencia explicita acorde con el uso que se quiera permitir.
+
+Como canal de referencia, el repositorio remoto asociado es:
+
+- [github.com/eliasdb7/TFG](https://github.com/eliasdb7/TFG)
+
+## Contexto academico
+
+Este repositorio debe entenderse como soporte tecnico y documental del TFG. La herramienta implementada sirve para apoyar el analisis preliminar de afinidad entre asignaturas, pero la decision final sobre una posible convalidacion o reconocimiento academico sigue correspondiendo al profesorado o a la instancia academica competente.
