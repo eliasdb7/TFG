@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from src.semantic_similarity import compute_semantic_text_similarity
 
+HIGH_AFFINITY_THRESHOLD = 0.62
+MEDIUM_AFFINITY_THRESHOLD = 0.47
+
 
 def compute_ects_signal(
     ects_a: float | None,
@@ -44,9 +47,9 @@ def interpret_affinity(
     ects_signal: dict[str, float | str | bool | None],
 ) -> str:
     """Devuelve una interpretacion textual inicial de la afinidad."""
-    if semantic_similarity >= 0.75:
+    if semantic_similarity >= HIGH_AFFINITY_THRESHOLD:
         base_affinity = "afinidad alta"
-    elif semantic_similarity >= 0.50:
+    elif semantic_similarity >= MEDIUM_AFFINITY_THRESHOLD:
         base_affinity = "afinidad media"
     else:
         base_affinity = "afinidad baja"

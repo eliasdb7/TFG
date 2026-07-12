@@ -18,6 +18,7 @@ DEFAULT_EMBEDDING_BACKEND = "sentence_transformers_local"
 DEFAULT_CHUNKING_STRATEGY = "line_sentence_windows"
 MAX_CHUNK_CHARS = 450
 MIN_CHUNK_CHARS = 120
+LOWER_TRIM_RATIO = 0.20
 MODEL_CACHE_DIR = Path("models/sentence_transformers")
 
 
@@ -295,6 +296,20 @@ def build_top_semantic_matches(
     return selected
 
 
+def compute_lower_trimmed_mean(values: np.ndarray, *, trim_ratio: float = LOWER_TRIM_RATIO) -> float:
+    """Promedia los mejores valores ignorando la cola inferior para reducir ruido."""
+    if values.size == 0:
+        return 0.0
+
+    sorted_values = np.sort(values.astype(np.float32, copy=False))
+    trim_count = min(int(np.floor(sorted_values.size * trim_ratio)), max(sorted_values.size - 1, 0))
+    trimmed_values = sorted_values[trim_count:]
+    if trimmed_values.size == 0:
+        trimmed_values = sorted_values[-1:]
+
+    return float(trimmed_values.mean())
+
+
 def compute_semantic_text_similarity(
     text_a: str,
     text_b: str,
@@ -324,8 +339,8 @@ def compute_semantic_text_similarity(
 
     similarity_matrix = cosine_similarity(origin_embeddings, target_embeddings)
     similarity_matrix = np.clip(similarity_matrix, 0.0, 1.0)
-    origin_best_match_mean = float(similarity_matrix.max(axis=1).mean())
-    target_best_match_mean = float(similarity_matrix.max(axis=0).mean())
+    origin_best_match_mean = compute_lower_trimmed_mean(similarity_matrix.max(axis=1))
+    target_best_match_mean = compute_lower_trimmed_mean(similarity_matrix.max(axis=0))
     score = (origin_best_match_mean + target_best_match_mean) / 2.0
 
     origin_document_embedding = build_document_embedding(origin_embeddings)
