@@ -16,6 +16,16 @@ NAME_META_KEYS = (
     "title",
 )
 
+SUBJECT_NAME_LABELS = (
+    "asignatura",
+    "subject",
+    "nombre de la asignatura",
+    "nombre asignatura",
+    "course name",
+    "course title",
+    "module title",
+)
+
 CONTENT_SECTION_KEYWORDS = (
     "contenidos",
     "contenido",
@@ -55,6 +65,19 @@ ACADEMIC_INFO_MARKERS = (
     "caracter",
     "carácter",
 )
+
+GENERIC_SUBJECT_NAME_EXACTS = {
+    "consulta de guias docentes",
+    "informacion del plan docente",
+    "teaching plan information",
+    "datos de la asignatura",
+    "general information",
+    "academic year",
+    "academic year of degree",
+    "estudia",
+    "relacionados",
+    "guia docente cargada dinamicamente",
+}
 
 
 def clean_text(text: str) -> str:
@@ -106,6 +129,27 @@ def cleanup_subject_name(name: str) -> str:
     return cleaned_name.strip(" -|")
 
 
+def is_generic_subject_name(text: str) -> bool:
+    """Indica si un texto parece un encabezado genérico y no una asignatura."""
+    normalized_text = normalize_label(text)
+    if not normalized_text:
+        return True
+
+    if is_generic_degree_name(text):
+        return True
+
+    if normalized_text in GENERIC_SUBJECT_NAME_EXACTS:
+        return True
+
+    if re.fullmatch(r"(curso|ano academico|academic year)(?:\s+\w+)?\s*:?\s*\d{4}(?:/\d{2,4})?", normalized_text):
+        return True
+
+    if re.fullmatch(r"\d{4}(?:/\d{2,4})?", normalized_text):
+        return True
+
+    return False
+
+
 def is_generic_degree_name(text: str) -> bool:
     """Indica si el texto parece el nombre de una titulación y no de una asignatura."""
     normalized_text = normalize_label(text)
@@ -138,8 +182,65 @@ def get_meta_name_candidates(soup: BeautifulSoup) -> list[str]:
     return candidates
 
 
-def find_name_near_academic_markers(soup: BeautifulSoup) -> str | None:
-    """Busca el nombre en encabezados próximos a campos académicos de la ficha."""
+def score_subject_name_candidate(text: str, *, tag: Tag | None = None, base_score: int = 0) -> int:
+    """Calcula una puntuación simple para elegir el nombre más plausible."""
+    score = base_score
+    cleaned_text = cleanup_subject_name(text)
+
+    if re.search(r"\b\d{4,6}\s*[-–]\s*[^\W_]", cleaned_text):
+        score += 12
+
+    if 4 <= len(cleaned_text) <= 120:
+        score += 6
+
+    if tag is None:
+        return score
+
+    current_tag: Tag | None = tag
+    for _ in range(6):
+        if current_tag is None:
+            break
+
+        class_names = {
+            str(class_name).strip().lower()
+            for class_name in current_tag.get("class", [])
+            if str(class_name).strip()
+        }
+
+        if {"active", "show", "current", "selected"} & class_names:
+            score += 20
+
+        if "tab-pane" in class_names and "active" not in class_names and "show" not in class_names:
+            score -= 15
+
+        if current_tag.has_attr("hidden") or str(current_tag.get("aria-hidden", "")).lower() == "true":
+            score -= 20
+
+        parent = current_tag.parent
+        current_tag = parent if isinstance(parent, Tag) else None
+
+    return score
+
+
+def collect_best_candidate(
+    candidates: list[tuple[str, int]],
+    text: str,
+    *,
+    tag: Tag | None = None,
+    base_score: int = 0,
+) -> None:
+    """Añade un candidato de nombre si parece válido."""
+    candidate_text = cleanup_subject_name(text)
+    if not candidate_text or is_generic_subject_name(candidate_text):
+        return
+
+    score = score_subject_name_candidate(candidate_text, tag=tag, base_score=base_score)
+    candidates.append((candidate_text, score))
+
+
+def collect_name_candidates_near_academic_markers(soup: BeautifulSoup) -> list[tuple[str, int]]:
+    """Busca nombres en encabezados próximos a campos académicos de la ficha."""
+    candidates: list[tuple[str, int]] = []
     for marker in ACADEMIC_INFO_MARKERS:
         marker_node = soup.find(
             string=lambda value, expected=marker: bool(value)
@@ -153,58 +254,139 @@ def find_name_near_academic_markers(soup: BeautifulSoup) -> str | None:
             continue
 
         for heading in marker_tag.find_all_previous(["h1", "h2", "h3", "h4"], limit=5):
-            heading_text = cleanup_subject_name(get_visible_text(heading))
-            if not heading_text or is_generic_degree_name(heading_text):
-                continue
-            return heading_text
+            collect_best_candidate(
+                candidates,
+                get_visible_text(heading),
+                tag=heading,
+                base_score=85,
+            )
 
-    return None
+    return candidates
+
+
+def iter_non_empty_following_tags(start_tag: Tag, *, limit: int = 3) -> list[Tag]:
+    """Recupera las siguientes etiquetas con texto visible a partir de una etiqueta dada."""
+    following_tags: list[Tag] = []
+    for sibling in start_tag.next_siblings:
+        if not isinstance(sibling, Tag):
+            continue
+
+        sibling_text = get_visible_text(sibling)
+        if not sibling_text:
+            continue
+
+        following_tags.append(sibling)
+        if len(following_tags) >= limit:
+            break
+
+    return following_tags
+
+
+def collect_subject_name_candidates_from_labels(soup: BeautifulSoup) -> list[tuple[str, int]]:
+    """Busca nombres junto a etiquetas explícitas tipo `Asignatura:` o `Subject:`."""
+    candidates: list[tuple[str, int]] = []
+    label_tags = soup.find_all(["dt", "th", "td", "strong", "b", "label", "div", "span", "p"])
+
+    for label_tag in label_tags:
+        label_text = get_visible_text(label_tag)
+        if normalize_label(label_text) not in SUBJECT_NAME_LABELS:
+            continue
+
+        parent_tag = label_tag.parent if isinstance(label_tag.parent, Tag) else None
+        if parent_tag:
+            parent_text = get_visible_text(parent_tag)
+            parent_remainder = clean_text(parent_text.replace(label_text, "", 1))
+            if parent_remainder:
+                collect_best_candidate(
+                    candidates,
+                    parent_remainder,
+                    tag=parent_tag,
+                    base_score=110,
+                )
+
+        if parent_tag and parent_tag.name == "dt":
+            next_dd = parent_tag.find_next_sibling("dd")
+            if isinstance(next_dd, Tag):
+                collect_best_candidate(candidates, get_visible_text(next_dd), tag=next_dd, base_score=110)
+
+        if parent_tag and parent_tag.name in {"th", "td"}:
+            next_cell = parent_tag.find_next_sibling(["td", "th"])
+            if isinstance(next_cell, Tag):
+                collect_best_candidate(candidates, get_visible_text(next_cell), tag=next_cell, base_score=110)
+
+        for sibling_tag in iter_non_empty_following_tags(label_tag):
+            collect_best_candidate(candidates, get_visible_text(sibling_tag), tag=sibling_tag, base_score=100)
+
+        if parent_tag:
+            for sibling_tag in iter_non_empty_following_tags(parent_tag):
+                collect_best_candidate(candidates, get_visible_text(sibling_tag), tag=sibling_tag, base_score=110)
+
+    return candidates
+
+
+def pick_best_subject_name(candidates: list[tuple[str, int]]) -> str | None:
+    """Elige el candidato de mayor puntuación."""
+    if not candidates:
+        return None
+
+    best_by_normalized_text: dict[str, tuple[str, int]] = {}
+    occurrences_by_normalized_text: dict[str, int] = {}
+    for text, score in candidates:
+        normalized_text = normalize_label(text)
+        occurrences_by_normalized_text[normalized_text] = (
+            occurrences_by_normalized_text.get(normalized_text, 0) + 1
+        )
+        previous = best_by_normalized_text.get(normalized_text)
+        if previous is None or score > previous[1] or (
+            score == previous[1] and len(text) < len(previous[0])
+        ):
+            best_by_normalized_text[normalized_text] = (text, score)
+
+    ranked_candidates = sorted(
+        (
+            (
+                text,
+                score + (occurrences_by_normalized_text.get(normalized_text, 0) - 1) * 10,
+                occurrences_by_normalized_text.get(normalized_text, 0),
+            )
+            for normalized_text, (text, score) in best_by_normalized_text.items()
+        ),
+        key=lambda item: (item[1], item[2], -len(item[0])),
+        reverse=True,
+    )
+    return ranked_candidates[0][0]
 
 
 def extract_subject_name(html: str) -> str | None:
-    """Extrae el nombre de la asignatura desde un documento HTML.
-
-    El orden de búsqueda es:
-    `h1`, `h2`, `title` y finalmente metadatos conocidos.
-    """
+    """Extrae el nombre de la asignatura desde un documento HTML."""
     soup = BeautifulSoup(html, "html.parser")
+    candidates: list[tuple[str, int]] = []
 
-    for tag_name in ("h1",):
+    candidates.extend(collect_subject_name_candidates_from_labels(soup))
+    candidates.extend(collect_name_candidates_near_academic_markers(soup))
+
+    heading_scores = {
+        "h1": 80,
+        "h2": 75,
+        "h3": 60,
+        "h4": 55,
+    }
+    for tag_name, base_score in heading_scores.items():
         for tag in soup.find_all(tag_name):
-            text = cleanup_subject_name(get_visible_text(tag))
-            if not text or is_generic_degree_name(text):
-                continue
-            return text
+            collect_best_candidate(
+                candidates,
+                get_visible_text(tag),
+                tag=tag,
+                base_score=base_score,
+            )
 
     if soup.title and soup.title.string:
-        title_text = cleanup_subject_name(soup.title.string)
-        if title_text and not is_generic_degree_name(title_text):
-            return title_text
-
-    contextual_name = find_name_near_academic_markers(soup)
-    if contextual_name:
-        return contextual_name
-
-    for tag_name in ("h1", "h2"):
-        for tag in soup.find_all(tag_name):
-            text = cleanup_subject_name(get_visible_text(tag))
-            if not text or is_generic_degree_name(text):
-                continue
-            return text
-
-    for tag_name in ("h3", "h4"):
-        for tag in soup.find_all(tag_name):
-            text = cleanup_subject_name(get_visible_text(tag))
-            if not text or is_generic_degree_name(text):
-                continue
-            return text
+        collect_best_candidate(candidates, soup.title.string, base_score=70)
 
     for candidate in get_meta_name_candidates(soup):
-        candidate_text = cleanup_subject_name(candidate)
-        if candidate_text and not is_generic_degree_name(candidate_text):
-            return candidate_text
+        collect_best_candidate(candidates, candidate, base_score=65)
 
-    return None
+    return pick_best_subject_name(candidates)
 
 
 def parse_ects_value(text: str) -> float | None:
@@ -492,6 +674,18 @@ def get_relevant_body_text(soup: BeautifulSoup) -> str | None:
 def extract_contents(html: str) -> str | None:
     """Extrae la sección de contenidos o temario desde un documento HTML."""
     soup = BeautifulSoup(html, "html.parser")
+
+    primary_pdf_section = soup.find("section", attrs={"data-primary-contents": "true"})
+    if isinstance(primary_pdf_section, Tag):
+        primary_heading = primary_pdf_section.find(["h1", "h2", "h3", "h4", "h5"])
+        if isinstance(primary_heading, Tag):
+            section_text = extract_section_from_heading(primary_heading)
+            if section_text:
+                return section_text
+
+        section_text = get_visible_text(primary_pdf_section)
+        if section_text:
+            return section_text
 
     collapse_section_text = extract_contents_from_collapsible_section(soup)
     if collapse_section_text:

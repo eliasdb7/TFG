@@ -13,6 +13,7 @@ from typing import Callable
 from urllib.parse import urlparse
 
 import requests
+from bs4 import BeautifulSoup
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
@@ -90,7 +91,46 @@ def wrap_html_section(section_id: str, heading: str, content_html: str) -> str:
 def normalize_pdf_lines(pdf_text: str) -> list[str]:
     """Normaliza el texto extraído de un PDF en líneas útiles."""
     raw_lines = pdf_text.replace("\r", "\n").split("\n")
-    return [line.strip() for line in raw_lines if line.strip()]
+    normalized_lines: list[str] = []
+    for raw_line in raw_lines:
+        line = sanitize_pdf_line(raw_line)
+        if not line or is_pdf_noise_line(line):
+            continue
+        normalized_lines.append(line)
+    return normalized_lines
+
+
+def sanitize_pdf_line(line: str) -> str:
+    """Limpia caracteres espurios frecuentes en texto extraído de PDF."""
+    cleaned_line = re.sub(r"[\uE000-\uF8FF]", " ", line)
+    cleaned_line = re.sub(r"[\u200B-\u200F\u202A-\u202E]", "", cleaned_line)
+    cleaned_line = cleaned_line.replace("\x00", " ").replace("�", " ")
+    cleaned_line = re.sub(r"\s+", " ", cleaned_line)
+    return cleaned_line.strip()
+
+
+def is_pdf_noise_line(line: str) -> bool:
+    """Descarta ruido típico de impresión/exportación en PDFs."""
+    normalized = normalize_heading_label(line)
+    if not normalized or normalized in {"?", "??", ".", "..", "..."}:
+        return True
+
+    if normalized in {"proyecto docente"}:
+        return True
+
+    noise_patterns = (
+        r"^\d{1,2}/\d{1,2}/\d{2,4},\s*\d{1,2}:\d{2}\b.*$",
+        r"^about:blank\s+\d+/\d+$",
+        r"^pagina\s+\d+\s+de\s+\d+$",
+        r"^page\s+\d+\s+of\s+\d+$",
+        r"^ultima modificacion .* pagina \d+ de \d+$",
+        r"^grupo\s+\d+(?:\s*\(\d+\))?$",
+        r"^curso\s+\d{4}[-/]\d{2,4}$",
+    )
+    if any(re.match(pattern, normalized) for pattern in noise_patterns):
+        return True
+
+    return False
 
 
 def normalize_heading_label(text: str) -> str:
@@ -107,6 +147,93 @@ def normalize_heading_label(text: str) -> str:
     )
     normalized = normalized.translate(replacements)
     return re.sub(r"\s+", " ", normalized)
+
+
+def get_pdf_heading_role(line: str) -> str | None:
+    """Clasifica un encabezado PDF en una categoría útil para la extracción."""
+    normalized = normalize_heading_label(line)
+    if not normalized:
+        return None
+
+    exact_content_headings = {
+        "contenidos",
+        "contenido",
+        "contenidos o bloques tematicos",
+        "bloques tematicos",
+        "bloques de contenido",
+        "temario",
+        "programa de la asignatura",
+        "programa de contenidos",
+        "programa de contenidos teoricos y practicos",
+        "relacion detallada y ordenacion temporal de los contenidos",
+        "relación detallada y ordenación temporal de los contenidos",
+    }
+    content_subsection_prefixes = (
+        "programa de clases",
+        "bloque ",
+        "tema ",
+        "unidad ",
+        "leccion ",
+        "lección ",
+        "capitulo ",
+        "capítulo ",
+    )
+    exact_content_subheadings = {
+        "teorico",
+        "teórico",
+        "practicas",
+        "prácticas",
+        "seminarios",
+        "seminarios practicos",
+        "seminarios prácticos",
+    }
+
+    if normalized in exact_content_headings:
+        return "contents"
+    if normalized.startswith(content_subsection_prefixes) or normalized in exact_content_subheadings:
+        return "contents_subsection"
+    if normalized in {
+        "objetivos",
+        "objetivos de la materia",
+        "objetivos y resultados del aprendizaje",
+        "resultados del aprendizaje",
+    }:
+        return "objectives"
+    if normalized in {
+        "breve descripcion",
+        "breve descripción",
+        "descripcion",
+        "descripción",
+    }:
+        return "contents_fallback"
+    if "evaluacion" in normalized or "calificacion" in normalized:
+        return "evaluation"
+    if "bibliografia" in normalized:
+        return "bibliography"
+    if "metodologia" in normalized or "docencia" in normalized:
+        return "methodology"
+    if "competencias" in normalized:
+        return "competencies"
+    if normalized in {
+        "profesorado",
+        "coordinador de la asignatura",
+    }:
+        return "staff"
+    if normalized in {
+        "informacion",
+        "información",
+        "programa",
+        "datos basicos de la asignatura",
+        "datos básicos de la asignatura",
+        "creditos ects",
+        "créditos ects",
+        "lenguas de uso",
+        "centro",
+        "convocatoria",
+    }:
+        return "metadata"
+
+    return None
 
 
 def canonicalize_pdf_heading(line: str) -> str:
@@ -255,6 +382,111 @@ def strip_pdf_hours_fragment(line: str) -> str:
     return re.sub(r"\s{2,}", " ", cleaned_line).strip(" :-\t")
 
 
+def looks_like_pdf_topic_line(line: str) -> bool:
+    """Identifica líneas que parecen elementos reales del temario."""
+    normalized = normalize_heading_label(line)
+    topic_prefixes = (
+        "tema ",
+        "bloque ",
+        "unidad ",
+        "leccion ",
+        "lección ",
+        "capitulo ",
+        "capítulo ",
+        "modulo ",
+        "módulo ",
+        "i. ",
+        "ii. ",
+        "iii. ",
+        "iv. ",
+        "v. ",
+    )
+    return normalized.startswith(topic_prefixes)
+
+
+def collect_pdf_section_lines(
+    lines: list[str],
+    start_index: int,
+) -> list[str]:
+    """Recoge las líneas asociadas a una sección de contenidos del PDF."""
+    section_lines: list[str] = []
+    for index in range(start_index + 1, len(lines)):
+        line = lines[index]
+        cleaned_line = strip_pdf_hours_fragment(line)
+        if not cleaned_line or is_pdf_hours_line(cleaned_line):
+            continue
+
+        if is_pdf_section_heading(cleaned_line):
+            role = get_pdf_heading_role(cleaned_line)
+            if role in {"evaluation", "bibliography", "methodology", "competencies", "staff", "metadata", "objectives"}:
+                break
+
+        section_lines.append(cleaned_line)
+
+    return section_lines
+
+
+def score_pdf_contents_candidate(heading: str, section_lines: list[str]) -> int:
+    """Puntúa una sección PDF como candidata a bloque principal de contenidos."""
+    role = get_pdf_heading_role(heading)
+    if role is None:
+        return -1
+
+    score_by_role = {
+        "contents": 120,
+        "contents_subsection": 85,
+        "contents_fallback": 55,
+    }
+    score = score_by_role.get(role, -1)
+    if score < 0:
+        return score
+
+    text = "\n".join(section_lines)
+    if len(text) >= 200:
+        score += 20
+    elif len(text) >= 80:
+        score += 10
+
+    topic_like_lines = sum(1 for line in section_lines[:25] if looks_like_pdf_topic_line(line))
+    score += min(topic_like_lines, 8) * 6
+
+    metadata_like_lines = sum(
+        1
+        for line in section_lines[:10]
+        if "ects" in normalize_heading_label(line)
+        or "departamento" in normalize_heading_label(line)
+        or "centro" == normalize_heading_label(line)
+    )
+    score -= metadata_like_lines * 8
+
+    return score
+
+
+def extract_primary_pdf_contents_lines(lines: list[str]) -> list[str]:
+    """Selecciona el bloque de contenidos más representativo dentro de un PDF."""
+    best_lines: list[str] = []
+    best_score = -1
+
+    for index, line in enumerate(lines):
+        if not is_pdf_section_heading(line):
+            continue
+
+        role = get_pdf_heading_role(line)
+        if role not in {"contents", "contents_subsection", "contents_fallback"}:
+            continue
+
+        section_lines = collect_pdf_section_lines(lines, index)
+        if not section_lines:
+            continue
+
+        score = score_pdf_contents_candidate(line, section_lines)
+        if score > best_score:
+            best_score = score
+            best_lines = section_lines
+
+    return best_lines
+
+
 def infer_pdf_subject_name(lines: list[str], fallback_title: str) -> str:
     """Intenta inferir el nombre de la asignatura desde el texto del PDF."""
     explicit_label_patterns = (
@@ -337,8 +569,23 @@ def build_pdf_html(pdf_text: str, pdf_title: str | None = None) -> str:
     lines = normalize_pdf_lines(pdf_text)
     fallback_title = (pdf_title or "Guía docente PDF").replace(".pdf", "").strip()
     subject_name = infer_pdf_subject_name(lines, fallback_title)
+    primary_contents_lines = extract_primary_pdf_contents_lines(lines)
 
-    body_parts: list[str] = [f"<h1>{html.escape(subject_name)}</h1>"]
+    body_parts: list[str] = [
+        f"<h1>{html.escape(subject_name)}</h1>",
+        (
+            '<section data-pdf-role="summary">'
+            f"<p><strong>Asignatura:</strong> {html.escape(subject_name)}</p>"
+            "</section>"
+        ),
+    ]
+
+    if primary_contents_lines:
+        body_parts.append('<section data-primary-contents="true"><h2>Contenidos</h2>')
+        for line in primary_contents_lines:
+            body_parts.append(f"<p>{html.escape(line)}</p>")
+        body_parts.append("</section>")
+
     current_section_open = False
 
     for line in lines:
@@ -516,6 +763,37 @@ def get_snapshot_api_subject_title(snapshot_data: dict[str, object]) -> str | No
     return str(preferred_entry.get("name") or "").strip() or None
 
 
+def normalize_snapshot_text_fragment(fragment: object) -> str:
+    """Normaliza texto snapshot aunque venga enriquecido con HTML."""
+    raw_text = str(fragment or "").strip()
+    if not raw_text:
+        return ""
+
+    if re.search(r"<[a-zA-Z/][^>]*>", raw_text):
+        fragment_soup = BeautifulSoup(raw_text, "html.parser")
+        for tag in fragment_soup(["script", "style"]):
+            tag.decompose()
+        for line_break in fragment_soup.find_all("br"):
+            line_break.replace_with("\n")
+        normalized_text = fragment_soup.get_text(separator="\n", strip=True)
+    else:
+        normalized_text = raw_text
+
+    normalized_text = html.unescape(normalized_text)
+    normalized_text = re.sub(r"\s*\n\s*", "\n", normalized_text)
+    normalized_text = re.sub(r"[ \t\xa0]+", " ", normalized_text)
+    normalized_text = re.sub(r"\n{2,}", "\n", normalized_text)
+    return normalized_text.strip()
+
+
+def snapshot_text_to_html(text: str) -> str:
+    """Convierte un texto normalizado del snapshot a HTML sencillo."""
+    lines = [line.strip() for line in text.split("\n") if line.strip()]
+    if not lines:
+        return ""
+    return "<br/>".join(html.escape(line) for line in lines)
+
+
 def build_snapshot_api_contents_html(contents: object) -> str:
     """Convierte la lista de contenidos snapshot a HTML académico simple."""
     if not isinstance(contents, list):
@@ -536,14 +814,18 @@ def build_snapshot_api_contents_html(contents: object) -> str:
 
     items_html: list[str] = []
     for entry in filtered_contents:
-        title = str(entry.get("description") or "").strip()
-        details = str(entry.get("comments") or "").strip()
+        title = normalize_snapshot_text_fragment(entry.get("description"))
+        details = normalize_snapshot_text_fragment(entry.get("comments"))
         if not title and not details:
             continue
 
-        title_html = f"<strong>{html.escape(title)}</strong>" if title else ""
-        details_html = html.escape(details)
-        items_html.append(f"<li>{title_html} {details_html}</li>".strip())
+        title_html = f"<strong>{snapshot_text_to_html(title)}</strong>" if title else ""
+        details_html = snapshot_text_to_html(details)
+        if title_html and details_html:
+            item_html = f"{title_html}<br/>{details_html}"
+        else:
+            item_html = title_html or details_html
+        items_html.append(f"<li>{item_html}</li>")
 
     if not items_html:
         return "<p>No se han encontrado contenidos estructurados.</p>"
